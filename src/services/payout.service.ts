@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Prisma } from '@prisma/client';
 import { WhatsAppService } from './whatsapp.service';
 import { SorobanService } from './soroban.service';
 import { config } from '../config/env';
@@ -241,8 +241,8 @@ export class PayoutService {
     /** Pays out the reduced pool made up of only the members who actually contributed this cycle. */
     public async proceedWithPartialPool(groupId: string): Promise<any> {
         const status = await this.getCycleContributionStatus(groupId);
-        const partialAmount = status.contributedUserIds.size * parseFloat(String(status.group.contributionAmount));
-        return this.executePayout(groupId, String(partialAmount));
+        const partialAmount = new Prisma.Decimal(status.group.contributionAmount).mul(status.contributedUserIds.size);
+        return this.executePayout(groupId, partialAmount.toFixed());
     }
 
     /**
@@ -330,7 +330,7 @@ export class PayoutService {
         }
 
         const recipientPublicKey = JSON.parse(recipientMember.user.stellarWallet).publicKey;
-        const amount = amountOverride ?? String(parseFloat(String(group.contributionAmount)) * order.length);
+        const amount = amountOverride ?? new Prisma.Decimal(group.contributionAmount).mul(order.length).toFixed();
 
         if (!config.GROUP_TREASURY_SECRET) {
             throw new Error('No treasury signer configured — set GROUP_TREASURY_SECRET to enable automatic payouts.');
