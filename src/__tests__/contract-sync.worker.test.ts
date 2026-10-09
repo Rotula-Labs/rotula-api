@@ -57,10 +57,7 @@ jest.mock('@prisma/client', () => {
             reconciliationMismatch: { create: (...args: any[]) => (global as any).__prismaMocks.create(...args) },
         })),
         Prisma: {
-            Decimal: class Decimal {
-                constructor(public val: number) {}
-                toString() { return String(this.val); }
-            },
+            Decimal: jest.requireActual('@prisma/client/runtime/library').Decimal,
         },
     };
 });

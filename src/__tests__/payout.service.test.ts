@@ -7,6 +7,7 @@ import {
 import { config } from '../config/env';
 
 jest.mock('@prisma/client', () => {
+    const { Decimal } = jest.requireActual('@prisma/client/runtime/library');
     const mPrismaClient = {
         savingsGroup: {
             findUnique: jest.fn(),
@@ -27,7 +28,7 @@ jest.mock('@prisma/client', () => {
         },
         $transaction: jest.fn((ops: any[]) => Promise.resolve(ops)),
     };
-    return { PrismaClient: jest.fn(() => mPrismaClient) };
+    return { PrismaClient: jest.fn(() => mPrismaClient), Prisma: { Decimal } };
 });
 
 jest.mock('../queue/contribution-scheduler.queue', () => ({
@@ -234,6 +235,53 @@ describe('PayoutService', () => {
             expect(result).toBe(existing);
             expect(mockSorobanPayout).not.toHaveBeenCalled();
             expect(prisma.payout.create).not.toHaveBeenCalled();
+        });
+    });
+
+    describe('executePayout — exact 7-decimal amounts', () => {
+        it('multiplies a 7-decimal contributionAmount without floating-point error', async () => {
+            const group = {
+                id: 'g1',
+                name: 'Ajo Circle',
+                contributionAmount: '0.0000001',
+                currentPayoutIndex: 0,
+                totalCycles: 0,
+                payoutOrder: ['u1', 'u2', 'u3'],
+                members: [makeMember('u1', 'CREATOR'), makeMember('u2', 'MEMBER'), makeMember('u3', 'MEMBER')],
+            };
+            prisma.savingsGroup.findUnique.mockResolvedValueOnce(group);
+            prisma.payout.findFirst.mockResolvedValueOnce(null);
+            prisma.payout.create.mockResolvedValueOnce({ id: 'payout-1' });
+
+            await payoutService.executePayout('g1');
+
+            expect(mockSorobanPayout).toHaveBeenCalledWith('TEST_TREASURY_SECRET', 'PUB_u1', '0.0000003');
+        });
+
+        it('computes the partial pool with exact decimal multiplication', async () => {
+            const group = {
+                id: 'g1',
+                name: 'Ajo Circle',
+                contributionAmount: '0.0000001',
+                currentPayoutIndex: 0,
+                totalCycles: 0,
+                currentCycleStart: null,
+                currentCycleEnd: null,
+                payoutOrder: ['u1', 'u2', 'u3'],
+                members: [makeMember('u1', 'CREATOR'), makeMember('u2', 'MEMBER'), makeMember('u3', 'MEMBER')],
+            };
+            prisma.savingsGroup.findUnique.mockResolvedValueOnce(group).mockResolvedValueOnce(group);
+            prisma.contribution.findMany.mockResolvedValueOnce([
+                { userId: 'u1', status: 'COMPLETED' },
+                { userId: 'u2', status: 'COMPLETED' },
+                { userId: 'u3', status: 'COMPLETED' },
+            ]);
+            prisma.payout.findFirst.mockResolvedValueOnce(null);
+            prisma.payout.create.mockResolvedValueOnce({ id: 'payout-partial' });
+
+            await payoutService.proceedWithPartialPool('g1');
+
+            expect(mockSorobanPayout).toHaveBeenCalledWith('TEST_TREASURY_SECRET', 'PUB_u1', '0.0000003');
         });
     });
 
