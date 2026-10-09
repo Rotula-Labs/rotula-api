@@ -83,6 +83,7 @@ Apply Prisma migrations and generate the Prisma client for your development data
 - The frontend and backend are not yet a fully connected product. Some frontend data, authentication, and wallet routes are prototypes.
 - Worker implementations exist, but not all are started by the current server entry point. Verify worker lifecycle before relying on a background flow.
 - Contract deployment, member lifecycle, contribution handling, and payout orchestration are still being aligned with the current Soroban ABI.
+- The contract code has a Stellar Testnet deployment for review, but no savings group has been initialized. This is not an active savings service.
 - Asset denomination is inconsistent: the product brief targets USDC, while implemented payment and command paths include XLM. Contract amounts are integer base units and require exact asset decimal handling.
 - Some user-facing operations, including group withdrawal, are marked or implemented as mocked. A success message in a command path is not evidence of an on-chain transfer.
 - Platform-managed wallet signing material is encrypted at rest in the current design. Kolo is not currently a self-custody wallet product; key custody and operational safeguards remain part of product and security work.
