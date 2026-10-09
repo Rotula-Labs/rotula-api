@@ -132,11 +132,13 @@ export async function runReconciliation(sorobanService: SorobanService): Promise
             });
 
             const dbTotalXlm = dbContributions.reduce(
-                (acc, c) => acc + Number(c.amount),
-                0,
+                (acc, c) => acc.plus(c.amount),
+                new Prisma.Decimal(0),
             );
-            // Convert DB amount (XLM) to stroops for comparison
-            const dbStroops = BigInt(Math.round(dbTotalXlm * 10_000_000));
+            // Convert DB amount (XLM) to stroops for comparison. Stellar amounts
+            // are 7-decimal fixed point, so multiplying by 10^7 yields an exact
+            // integer — no floating-point rounding step is needed.
+            const dbStroops = BigInt(dbTotalXlm.mul(10_000_000).toFixed(0));
 
             // 3. Compare — allow a 1-stroop tolerance for floating-point rounding
             if (onChainStroops === dbStroops || Math.abs(Number(onChainStroops - dbStroops)) <= 1) {
@@ -147,7 +149,7 @@ export async function runReconciliation(sorobanService: SorobanService): Promise
             summary.mismatchesFound++;
 
             const onChainXlm = new Prisma.Decimal(Number(onChainStroops) / 10_000_000);
-            const dbXlm = new Prisma.Decimal(dbTotalXlm);
+            const dbXlm = dbTotalXlm;
 
             await prisma.reconciliationMismatch.create({
                 data: {
