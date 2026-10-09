@@ -9,6 +9,8 @@ import { startWorker } from './workers/message.worker';
 import { startSorobanDeploymentWorker } from './workers/soroban-deployment.worker';
 import { startKeyRotationWorker } from './workers/key-rotation.worker';
 import { startContractSyncWorker } from './workers/contract-sync.worker';
+import { startContributionSchedulerWorker } from './workers/contribution-scheduler.worker';
+import { startPaymentRequestWorker } from './workers/payment-request.worker';
 import { observabilityService } from './services/observability.service';
 import { zeroAllInFlightSecrets } from './utils/secret-registry';
 
@@ -71,7 +73,7 @@ app.use('/admin', adminRoutes);
 app.use('/auth', authRoutes);
 
 app.get('/', (req, res) => {
-    res.send('Kolo Backend is running');
+    res.send('Rotula Backend is running');
 });
 
 
@@ -94,6 +96,8 @@ const server = app.listen(config.PORT, () => {
     startSorobanDeploymentWorker();
     startKeyRotationWorker();
     startContractSyncWorker();
+    startContributionSchedulerWorker();
+    startPaymentRequestWorker();
 });
 
 
