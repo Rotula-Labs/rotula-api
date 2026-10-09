@@ -1,504 +1,87 @@
-# Kolo - PRD (Product Requirement Document)
+# Kolo Backend
 
-## 1. Product Overview
+**Kolo is a WhatsApp-first community savings platform being built on Stellar.** This TypeScript service connects WhatsApp conversations to member accounts, savings groups, Stellar wallets, and Soroban smart contracts. It is the coordination layer between the messaging experience, off-chain application records, and on-chain settlement.
 
-**Name:** Kolo
+Kolo is designed for Ajo/Esusu-style rotating savings circles: members agree to contribute on a schedule, and the pooled value is paid to members in an agreed order. The long-term product direction is to use Stellar assets for payments and Soroban for transparent, enforceable group rules.
 
-**Type:** WhatsApp-Native Savings & Payments Platform
+## How Stellar fits into Kolo
 
-**Platform:** WhatsApp + Node.js Backend + Stellar Blockchain + Soroban Smart Contracts
+- **Stellar accounts and assets:** The backend creates a platform-managed Stellar wallet for a new WhatsApp user, encrypts the signing secret at rest, and uses Stellar Horizon for account balances, transaction history, native XLM payments, and asset trustlines.
+- **SEP-10 authentication:** The auth service creates and verifies Stellar challenge transactions and issues a JWT for the authenticated account.
+- **Soroban savings groups:** A background deployment worker uploads the contract WASM, deploys a group contract, and records its contract ID. Contribution handling signs a Soroban invocation with the contributing member's wallet and records the result after confirmation.
+- **Reconciliation:** A scheduled worker compares contract contribution state with database records and records mismatches for review rather than silently changing either source.
+- **WhatsApp as the interface:** Signed WhatsApp webhooks enter a BullMQ queue; workers process commands and send responses and reminders.
 
-**Objective:**
-Enable individuals, families, and community savings groups to create, manage, and participate in digital savings circles directly through WhatsApp, with transparent contributions and automated payouts powered by Stellar.
+Stellar is intended to give Kolo a shared settlement network for member-to-member transfers and savings-group contributions and payouts. The planned savings asset is USDC issued on Stellar. Soroban is intended to hold that asset under group rules, while Horizon and Soroban RPC let the backend submit transactions and check their ledger or contract results. WhatsApp remains the conversational interface; Stellar provides the wallet, asset, and settlement rails underneath it.
 
-**Target Users:**
+The intended flow is:
 
-* Ajo/Esusu groups
-* Community cooperatives
-* Family savings groups
-* Students
-* Informal financial associations
-* Small business contribution clubs
-
----
-
-## 2. Features
-
-### 2.1 User Features
-
-* Register using WhatsApp phone number
-* Automatically create Stellar wallet
-* Check wallet balance
-* Send and receive USDC
-* View transaction history
-* Receive payment notifications
-
-### 2.2 Savings Group Features
-
-* Create savings groups
-* Invite members through WhatsApp
-* Join groups via invitation
-* Define contribution amount
-* Define contribution frequency
-* Track member contributions
-* View group savings progress
-* Automated contribution reminders
-* Automated payout distribution
-
-### 2.3 Admin Features
-
-* Monitor platform activity
-* View active groups
-* Manage users
-* Review transaction logs
-* Handle dispute reports
-* Monitor smart contract performance
-
----
-
-## 3. Technical Architecture
-
-### Components
-
-#### WhatsApp Interface
-
-Provides user interaction through:
-
-* Commands
-* Interactive buttons
-* Notifications
-* Group invitations
-
-#### WhatsApp Business API
-
-Handles:
-
-* Message delivery
-* User communication
-* Event webhooks
-
-#### Node.js Backend
-
-Responsible for:
-
-* User management
-* Wallet management
-* Group management
-* Transaction processing
-* Smart contract interaction
-
-#### Soroban Smart Contracts
-
-Handles:
-
-* Savings group creation
-* Contribution tracking
-* Payout execution
-* Group state management
-
-#### Stellar Blockchain
-
-Provides:
-
-* Settlement layer
-* USDC transfers
-* Transaction validation
-
-#### Database
-
-Stores:
-
-* User profiles
-* Group metadata
-* Transaction records
-* Contribution history
-
----
-
-### Flow
-
-```mermaid
-graph TD
-    A[User sends message on WhatsApp] --> B[WhatsApp Business API receives request]
-    B --> C[Node.js backend processes command]
-    C --> D[Backend interacts with Soroban smart contract]
-    D --> E[Soroban updates group state]
-    E --> F[Stellar executes transaction]
-    F --> G[Backend returns confirmation to WhatsApp]
-    G --> H[User receives notification]
+```text
+WhatsApp message
+  -> verified webhook
+  -> queued command processing
+  -> Kolo services and PostgreSQL
+  -> Stellar Horizon payment or Soroban contract call
+  -> confirmation and WhatsApp response
 ```
 
----
+## Kolo repositories
 
-### Example Savings Flow
+- [Frontend](https://github.com/Stellar-Kolo/kolo-frontend) — member and admin web experience.
+- [Backend](https://github.com/Stellar-Kolo/kolo-backend) — this WhatsApp and Stellar orchestration service.
+- [Soroban contracts](https://github.com/Stellar-Kolo/kolo-contracts) — contract-enforced savings group rules.
 
-```mermaid
-graph TD
-    A[Group Creator creates group] --> B[Members receive invitations]
-    B --> C[Members join group]
-    C --> D[Members contribute USDC]
-    D --> E[Contributions recorded in contract]
-    E --> F[Contribution status updated]
-    F --> G[Payout date reached]
-    G --> H[Soroban contract triggers payout]
-    H --> I[Recipient receives funds]
-    I --> J[Group records updated]
-```
+## Current development status
 
----
+This repository contains active product and integration work; it is not a production-ready financial service. The web frontend and this backend are not yet fully connected. Some worker implementations exist but are not all started by the current server entry point. The Soroban deployment and payout interfaces are also being aligned with the current contract ABI and membership lifecycle.
 
-## 4. Tech Stack
+The product brief calls for USDC savings, while some implemented wallet transfers and user-facing commands currently use native XLM, and the contract accepts a configured token address. Asset denomination and decimal conversion must be made consistent before treating savings contributions or payouts as live-money flows. Always test on Stellar Testnet and never use production keys in development.
 
-### Frontend
+## Main components
 
-* WhatsApp Business Platform
-* WhatsApp Cloud API
+- `src/controllers/`, `src/routes/`, `src/middleware/` — WhatsApp webhook and authentication entry points, signature verification, and request controls.
+- `src/services/` — user, group, payment request, payout, WhatsApp, Stellar, and Soroban operations.
+- `src/queue/`, `src/workers/` — asynchronous message processing, contract deployment, reconciliation, payment requests, and scheduled jobs.
+- `prisma/` — PostgreSQL schema and migrations.
+- `src/locales/` — English, French, Hausa, Igbo, Nigerian Pidgin, and Yoruba response strings.
+- `src/utils/` — encryption, secret handling, audit logging, and related utilities.
 
-### Backend
+## Local development
 
-* Node.js
-* Express.js
-* TypeScript
-
-### Database
-
-* PostgreSQL
-
-### Blockchain
-
-* Stellar Network
-* Soroban Smart Contracts
-
-### Smart Contract Language
-
-* Rust
-* soroban-sdk
-
-### Wallet Integration
-
-* Stellar SDK
-
-### Notifications
-
-* WhatsApp Cloud API Webhooks
-
-
-## 5. Local Development Setup
-
-### Prerequisites
-
-* Node.js >= 18.x
-* PostgreSQL >= 14.x
-* Redis (for BullMQ queue)
-* npm or yarn
-
-### Installation
+Requires Node.js, PostgreSQL, and Redis. Configure the environment for the services you intend to run; the application requires encryption and WhatsApp webhook secrets at startup. Do not commit `.env` files, wallet secrets, or API tokens.
 
 ```bash
-git clone https://github.com/Tobi-8/Kolo-Backend.git
-cd Kolo-Backend
-npm install
-```
-
-### Environment Configuration
-
-Create a `.env` file in the project root:
-
-```env
-PORT=3000
-WHATSAPP_TOKEN=your_whatsapp_token
-WHATSAPP_PHONE_NUMBER_ID=your_phone_number_id
-WHATSAPP_APP_SECRET=your_app_secret
-VERIFY_TOKEN=kolo_verify_token
-DATABASE_URL=postgresql://user:password@localhost:5432/kolo_db
-STELLAR_NETWORK=TESTNET
-REDIS_URL=redis://localhost:6379
-ENCRYPTION_KEY=your_32_byte_hex_string
-GROUP_TREASURY_SECRET=your_stellar_secret_key # interim shared signer that disburses rotational payouts
-MAX_PAYOUT_DEADLINE_EXTENSIONS=2
-```
-
-### Database Setup
-
-```bash
-# Create PostgreSQL database
-createdb kolo_db
-
-# Run Prisma migrations
-npx prisma migrate deploy
-
-# (Optional) Seed initial data
-npx prisma db seed
-```
-
-### Running the Application
-
-```bash
-# Development
+npm ci
 npm run dev
-
-# Production
-npm start
 ```
 
----
+Other scripts:
 
-## 6. MVP Scope
+```bash
+npm start
+npm test
+```
 
-### User Registration
+The backend uses Prisma. Apply migrations and generate the Prisma client according to your local database setup before running against a development database.
 
-* WhatsApp onboarding
-* Wallet creation
+## Stellar development notes
 
-### Wallet Features
+- Use Stellar Testnet while developing and configure the matching Horizon and Soroban RPC endpoints.
+- Keep secret material in encrypted storage and minimize its lifetime in memory. Never log or expose signing secrets.
+- Treat Horizon or Soroban submission as pending until the network confirms the transaction.
+- Keep database records reconcilable with transaction hashes and contract state.
+- Verify the contract ABI, token address, amount units, authorization requirements, and group membership state together when changing an on-chain flow.
 
-* Balance inquiry
-* Transaction history
+## Tests
 
-### Savings Groups
+The Jest suite covers command processing, webhook verification, encryption, services, workers, and integration scenarios. Run it with:
 
-* Create group
-* Join group
-* Invite members
-* Contribution tracking
+```bash
+npm test
+```
 
-### Payments
+For integration tests, configure their required test services and credentials as described in the test setup. Do not point tests at production accounts or contracts.
 
-* USDC transfers
-* Automated payouts
+## Contributing
 
-### Notifications
-
-* Contribution reminders
-* Payout confirmations
-
----
-
-## 7. Future Enhancements
-
-### Financial Features
-
-* Rotational savings pools (Ajo/Esusu)
-* Goal-based savings
-* Emergency funds
-* Community lending
-
-### Payments
-
-* Merchant payments
-* Bill payments
-* Airtime purchases
-* Utility payments
-
-### Growth Features
-
-* Referral rewards
-* Group leaderboards
-* Savings achievements
-
-### Asset Support
-
-* Multiple stablecoins
-* Local currency on/off ramps
-* Cross-border remittances
-
----
-
-## 8. Security & Compliance
-
-### Security
-
-* Encrypted wallet storage
-* Secure webhook validation
-* Transaction signing verification
-* Smart contract validation
-* Keep wallet generation out of logs and minimize secret lifetime in memory
-
-### Production Hardening
-
-When deploying wallet-generation code in production:
-
-* **Disable core dumps** with `ulimit -c 0` (verified at application startup)
-* Disable crash dump collection in the container runtime or host OS
-* Prefer an isolated key-management service for final wallet custody
-* Never log `secret` values or derived wallet payloads
-* Review memory-dump settings after OS, container, and base-image upgrades
-* Application automatically zeros all in-flight secret buffers on uncaught exceptions
-
-### Compliance
-
-* Phone number verification
-* KYC integration (future phase)
-* AML monitoring (future phase)
-* Transaction audit logs
-
----
-
-## 9. Performance Considerations
-
-* Cache frequently accessed group data
-* Optimize Soroban contract storage
-* Queue transaction processing
-* Implement webhook retry mechanisms
-* Monitor Stellar network fees
-
-### Target Metrics
-
-* Response time < 3 seconds
-* Payment settlement < 5 seconds
-* Support 10,000+ users
-* Support 1,000+ active savings groups
-
----
-
-## 10. Testing Plan
-
-### Backend Testing
-
-* Unit tests for APIs
-* Wallet service tests
-* Group management tests
-
-### Smart Contract Testing
-
-* Soroban contract unit tests
-* Contribution validation tests
-* Payout execution tests
-
-### Integration Testing
-
-Full workflow:
-
-User Registration
-
-↓
-
-Wallet Creation
-
-↓
-
-Group Creation
-
-↓
-
-Member Contribution
-
-↓
-
-Automated Payout
-
-↓
-
-Transaction Verification
-
-### Load Testing
-
-* Concurrent user activity
-* High-volume contribution periods
-* Group payout events
-
----
-
-## 11. Deployment Plan
-
-### Backend
-
-Deploy on:
-
-* AWS
-* DigitalOcean
-* Railway
-
-### Database
-
-* PostgreSQL Managed Service
-
-### Blockchain
-
-* Stellar Testnet (Development)
-* Stellar Mainnet (Production)
-
-### Smart Contracts
-
-Deploy Soroban contracts:
-
-* Testnet
-* Mainnet
-
-### WhatsApp Integration
-
-* WhatsApp Cloud API
-* Webhook Infrastructure
-
-### Monitoring
-
-* Application Logs
-* Stellar Transaction Monitoring
-* Smart Contract Monitoring
-* Error Tracking
-
----
-
-## 12. Success Metrics
-
-### User Metrics
-
-* Registered users
-* Active users
-* Retention rate
-
-### Group Metrics
-
-* Groups created
-* Active groups
-* Average members per group
-
-### Financial Metrics
-
-* Total savings volume
-* Total contribution volume
-* Total payouts processed
-
-### Platform Metrics
-
-* Transaction success rate
-* Smart contract execution success rate
-* Average response time
-
----
-
-## 13. Core User Commands
-
-### Account
-
-BALANCE
-
-HISTORY
-
-PROFILE
-
-### Payments
-
-SEND 10 @john
-
-REQUEST 20 @mary
-
-### Savings Groups
-
-CREATE GROUP
-
-JOIN GROUP
-
-INVITE MEMBER
-
-GROUP STATUS
-
-CONTRIBUTE
-
-WITHDRAW
-
-### Help
-
-HELP
-
-SUPPORT
+Open an issue before substantial changes. Stellar and Soroban contributions should include the intended network behavior, authorization model, transaction failure and retry behavior, and tests for the relevant edge cases. Changes to money movement require careful review.
