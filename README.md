@@ -5,9 +5,9 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Stellar](https://img.shields.io/badge/Stellar-Soroban-%237b2ff7?logo=stellar)](https://developers.stellar.org)
 [![Node.js](https://img.shields.io/badge/Node.js-20%2B-%23339933?logo=node.js&logoColor=white)](https://nodejs.org)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5-%233178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
+[![TypeScript](https://img.shields.io/badge/TypeScript-6-%233178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
 [![Postgres](https://img.shields.io/badge/Postgres-Prisma-%234169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/Rotula-Labs/rotula-api/issues)
 
 Rotula is a WhatsApp-first product for communities that already save together through Ajo, Esusu, and other rotating savings circles. This service connects those conversational workflows with member and group records, Stellar accounts and payments, and Soroban savings-group contracts.
 
@@ -105,15 +105,18 @@ Requires Node.js, PostgreSQL, and Redis. Configure the environment for the servi
 
 ```bash
 npm ci
-npm run dev
+npx ts-node src/index.ts
 ```
 
 Available scripts:
 
 ```bash
-npm start
-npm test
+npm start        # run the service with ts-node
+npm run dev      # run with nodemon (requires nodemon, which is not a declared dependency)
+npm test         # run the Jest suite
 ```
+
+`npm run dev` shells out to `nodemon`, which is not listed in `package.json`; either install it (`npm install --save-dev nodemon`) or run the service directly with the declared `npx ts-node src/index.ts`.
 
 Apply Prisma migrations and generate the Prisma client for your development database before running database-backed flows. Configure Stellar Testnet and a Soroban Testnet RPC endpoint for integration work.
 
