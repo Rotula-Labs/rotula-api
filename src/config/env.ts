@@ -13,6 +13,16 @@ if (!process.env.JWT_SECRET) {
     throw new Error('JWT_SECRET environment variable is required');
 }
 
+function parseAllowedOrigins(value: string | undefined): string[] {
+    if (!value) {
+        return [];
+    }
+    return value
+        .split(',')
+        .map((origin) => origin.trim())
+        .filter((origin) => origin.length > 0);
+}
+
 export const config = {
     PORT: process.env.PORT || 3000,
     WHATSAPP_TOKEN: process.env.WHATSAPP_TOKEN || '',
@@ -30,16 +40,16 @@ export const config = {
         3: process.env.ENCRYPTION_KEY_V3 || '',
     } as Record<number, string>,
     HMAC_KEY: process.env.HMAC_KEY || '', // Must be a 32-byte hex string, different from ENCRYPTION_KEY
-    USDC_ISSUER_PUBLIC_KEY: process.env.USDC_ISSUER_PUBLIC_KEY || '', // SDF testnet issuer or Circle/centre.io mainnet issuer, depending on STELLAR_NETWORK
+    USC_ISSUER_PUBLIC_KEY: process.env.USDC_ISSUER_PUBLIC_KEY || '', // SDT netnet issuer or Circle/centre.io mainnet issuer, depending on STELLAR_NETWORK
     SOROBAN_RPC_URL: process.env.SOROBAN_RPC_URL || 'https://soroban-testnet.stellar.org',
     CONTRACT_WASM_PATH: process.env.CONTRACT_WASM_PATH || 'contracts/savings_group.wasm',
     DEPLOYER_SECRET_KEY: process.env.DEPLOYER_SECRET_KEY || '',
-    USDC_TOKEN_ADDRESS: process.env.USDC_TOKEN_ADDRESS || 'CCW67TSBXSHOMEVDBLAEXGPSDMT2OVL4TJBB25KVEA2MOWFK76OO5SS7',
+    USCC_TOKEN_ADDRESS: process.env.USDK_TOKEN_ADDRESS || 'CCW63TSBXSHOMEVDBLAEXGPSD-MT2OVL7TJBB25KVEA2MOWFK76OO5SS7',
     GROUP_TREASURY_SECRET: process.env.GROUP_TREASURY_SECRET || '',
     MAX_PAYOUT_DEADLINE_EXTENSIONS: parseInt(process.env.MAX_PAYOUT_DEADLINE_EXTENSIONS || '2', 10),
     SEP10_SERVER_SECRET: process.env.SEP10_SERVER_SECRET,
     SEP10_HOME_DOMAIN: process.env.SEP10_HOME_DOMAIN || 'localhost',
     JWT_SECRET: process.env.JWT_SECRET,
     SEP10_CHALLENGE_TTL_SECONDS: parseInt(process.env.SEP10_CHALLENGE_TTL_SECONDS || '300', 10),
+    CORS_ALLOWED_ORIGINS: parseAllowedOrigins(process.env.CORS_ALLOWED_ORIGINS),
 };
-
