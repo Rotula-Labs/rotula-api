@@ -6,6 +6,7 @@ import { config } from '../config/env';
 jest.mock('../lib/redis', () => ({
     redisClient: {
         set: jest.fn().mockResolvedValue('OK'),
+        get: jest.fn().mockResolvedValue(null),
     }
 }));
 
@@ -81,6 +82,33 @@ describe('Auth Service - SEP-10', () => {
         await expect(authService.verifyChallengeAndGenerateToken(signedXdr)).rejects.toThrow('Challenge transaction has already been consumed');
     });
 
+    it('should allow a retry with a corrected signature for the same challenge', async () => {
+        const clientKeypair = StellarSdk.Keypair.random();
+        const challengeXdr = authService.generateChallenge(clientKeypair.publicKey());
+        const networkPassphrase = config.STELLAR_NETWORK === 'TESTNET' ? StellarSdk.Networks.TESTNET : StellarSdk.Networks.PUBLIC;
+
+        // First attempt: sign with the wrong key so verification fails
+        const wrongKeypair = StellarSdk.Keypair.random();
+        const badTransaction = new StellarSdk.Transaction(challengeXdr, networkPassphrase);
+        badTransaction.sign(wrongKeypair);
+        const badXdr = badTransaction.toEnvelope().toXDR('base64');
+
+        await expect(authService.verifyChallengeAndGenerateToken(badXdr)).rejects.toThrow();
+
+        // No replay key should have been written for the failed attempt
+        expect(redisClient.set).not.toHaveBeenCalled();
+
+        // Second attempt: sign correctly and it should succeed
+        const transaction = new StellarSdk.Transaction(challengeXdr, networkPassphrase);
+        transaction.sign(clientKeypair);
+        const signedXdr = transaction.toEnvelope().toXDR('base64');
+
+        const { token, account } = await authService.verifyChallengeAndGenerateToken(signedXdr);
+
+        expect(account).toBe(clientKeypair.publicKey());
+        expect(token).toBeDefined();
+    });
+
     it('should reject a challenge if the client signature does not meet the threshold', async () => {
         const clientKeypair = StellarSdk.Keypair.random();
         const challengeXdr = authService.generateChallenge(clientKeypair.publicKey());
@@ -93,6 +121,7 @@ describe('Auth Service - SEP-10', () => {
         const signedXdr = transaction.toEnvelope().toXDR('base64');
 
         await expect(authService.verifyChallengeAndGenerateToken(signedXdr)).rejects.toThrow();
+        expect(redisClient.set).not.toHaveBeenCalled();
     });
 
     it('should reject a challenge if the master key has zero weight and no other signers meet the threshold', async () => {
