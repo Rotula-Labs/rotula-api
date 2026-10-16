@@ -406,7 +406,7 @@ export class MessageProcessor {
         const senderHandle = sender.username ? '@' + sender.username : sender.phoneNumber;
         await this.whatsappService.sendMessage(
             recipient.phoneNumber,
-            t('request.notify_recipient', lang, {
+            t('request.notify_recipient', recipient.language ?? 'en', {
                 sender: senderHandle,
                 amount,
                 senderPhone: sender.phoneNumber,

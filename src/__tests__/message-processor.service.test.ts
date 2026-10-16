@@ -468,6 +468,32 @@ describe('MessageProcessor', () => {
         });
     });
 
+    describe('handleRequest — responder language', () => {
+        it('notifies the responder in the responder language and confirms to the sender in the sender language', async () => {
+            mockGetOrCreateUser.mockResolvedValueOnce({
+                id: 'u1', phoneNumber: '12345', username: 'john',
+                stellarWallet: JSON.stringify({ publicKey: 'G_PUB', encryptedSecret: 'ENC_SEC', iv: 'IV', authTag: 'TAG' }),
+                createdAt: new Date(), language: 'en',
+            });
+            mockResolveUser.mockResolvedValueOnce({
+                id: 'u2', phoneNumber: '67890', username: 'jane',
+                stellarWallet: JSON.stringify({ publicKey: 'G_PUB2', encryptedSecret: 'ENC_SEC2', iv: 'IV2', authTag: 'TAG2' }),
+                language: 'yo',
+            });
+
+            await processor.processCommand('12345', 'REQUEST 25 @jane');
+
+            const recipientCall = mockSendMessage.mock.calls.find(([to]: [string]) => to === '67890');
+            const senderCall = mockSendMessage.mock.calls.find(([to]: [string]) => to === '12345' && String(mockSendMessage.mock.calls.indexOf([to, ''])).length >= 0);
+            expect(recipientCall).toBeDefined();
+            expect(recipientCall![1]).toContain('request.notify_recipient');
+            expect(recipientCall![1]).toContain('"lang":"yo"');
+            expect(senderCall).toBeDefined();
+            expect(senderCall![1]).toContain('request.confirmation');
+            expect(senderCall![1]).toContain('"lang":"en"');
+        });
+    });
+
     describe('handleCreateGroup', () => {
         it('should create group with parsed args', async () => {
             await processor.processCommand('12345', 'CREATE GROUP Savings 50 MONTHLY');
