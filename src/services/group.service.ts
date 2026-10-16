@@ -4,31 +4,58 @@ import { enqueueContractDeployment } from '../queue/soroban-deployment.queue';
 
 const prisma = new PrismaClient();
 
+export type AmountValidationErrorCode =
+    | 'validation.invalid_format'
+    | 'validation.zero_amount'
+    | 'validation.precision_exceeded'
+    | 'validation.exceeds_max';
+
+export class AmountValidationError extends Error {
+    constructor(public readonly code: AmountValidationErrorCode) {
+        super(code);
+        this.name = 'AmountValidationError';
+    }
+}
+
 export class GroupService {
     /**
-     * Validates a contribution amount at the service boundary — the last line
-     * of defence before a value reaches the database or the blockchain.
+     * Shared validator for financial/contribution amounts.
      *
-     * Throws with a descriptive message so callers can surface it to the user.
+     * Returns null when the amount is valid, or a translation key describing
+     * the specific validation failure:
+     * - Must match the pattern for a non-negative decimal number (`validation.invalid_format`)
+     * - Must be strictly greater than zero (`validation.zero_amount`)
+     * - Must not exceed 7 decimal places (`validation.precision_exceeded`)
+     * - Must not exceed 1,000,000 XLM (`validation.exceeds_max`)
      */
-    private static validateAmount(amount: string | Prisma.Decimal): void {
-        const numericValue = typeof amount === 'string' ? parseFloat(amount) : Number(amount);
-        if (isNaN(numericValue) || numericValue <= 0) {
-            throw new Error('Contribution amount must be a positive number greater than zero.');
+    public static validateAmount(amount: string | Prisma.Decimal): AmountValidationErrorCode | null {
+        const amountStr = typeof amount === 'string' ? amount : String(amount);
+        if (!/^\d+(\.\d+)?$/.test(amountStr)) {
+            return 'validation.invalid_format';
         }
-        if (typeof amount === 'string') {
-            const decimalPart = amount.includes('.') ? amount.split('.')[1] : '';
-            if (decimalPart.length > 7) {
-                throw new Error('Amount cannot have more than 7 decimal places.');
-            }
+        const value = parseFloat(amountStr);
+        if (isNaN(value) || value <= 0) {
+            return 'validation.zero_amount';
         }
-        if (numericValue > 1_000_000) {
-            throw new Error('Amount exceeds the maximum allowed (1,000,000 XLM).');
+        const decimalPart = amountStr.includes('.') ? amountStr.split('.')[1] : '';
+        if (decimalPart.length > 7) {
+            return 'validation.precision_exceeded';
+        }
+        if (value > 1_000_000) {
+            return 'validation.exceeds_max';
+        }
+        return null;
+    }
+
+    private static assertValidAmount(amount: string | Prisma.Decimal): void {
+        const errorKey = GroupService.validateAmount(amount);
+        if (errorKey) {
+            throw new AmountValidationError(errorKey);
         }
     }
 
     public async createGroup(userId: string, name: string, amount: string | Prisma.Decimal, frequency: string) {
-        GroupService.validateAmount(amount);
+        GroupService.assertValidAmount(amount);
         const group = await prisma.savingsGroup.create({
             data: {
                 name,
@@ -113,7 +140,7 @@ export class GroupService {
     }
 
     public async addContribution(userId: string, groupId: string, amount: string | Prisma.Decimal, txHash: string, status: 'COMPLETED' | 'PENDING' | 'FAILED' = 'COMPLETED') {
-        GroupService.validateAmount(amount);
+        GroupService.assertValidAmount(amount);
         return await prisma.contribution.create({
             data: {
                 userId,

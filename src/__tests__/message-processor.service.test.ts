@@ -430,6 +430,19 @@ describe('MessageProcessor', () => {
             expect(mockCreateGroup).not.toHaveBeenCalled();
             expect(mockSendMessage).toHaveBeenCalledWith('12345', expect.stringContaining('validation.precision_exceeded'));
         });
+
+        it('should reject contribution amount exceeding 1,000,000 XLM', async () => {
+            await processor.processCommand('12345', 'CREATE GROUP Savings 2000000 MONTHLY');
+            expect(mockCreateGroup).not.toHaveBeenCalled();
+            expect(mockSendMessage).toHaveBeenCalledWith('12345', expect.stringContaining('validation.exceeds_max'));
+        });
+
+        it('renders a localized validation key if GroupService throws AmountValidationError', async () => {
+            const { AmountValidationError } = require('../services/group.service');
+            mockCreateGroup.mockRejectedValueOnce(new AmountValidationError('validation.exceeds_max'));
+            await processor.processCommand('12345', 'CREATE GROUP Savings 50 MONTHLY');
+            expect(mockSendMessage).toHaveBeenCalledWith('12345', 'validation.exceeds_max');
+        });
     });
 
     describe('handleWithdraw amount validation', () => {

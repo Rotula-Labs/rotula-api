@@ -3,7 +3,7 @@ import { StellarService } from './stellar.service';
 import { SorobanService } from './soroban.service';
 import * as StellarSdk from '@stellar/stellar-sdk';
 import { UserService } from './user.service';
-import { GroupService } from './group.service';
+import { GroupService, AmountValidationError } from './group.service';
 import { PayoutService } from './payout.service';
 import { GroupExitService, GroupExitError } from './group-exit.service';
 import { PaymentRequestService, PaymentRequestError } from './payment-request.service';
@@ -56,21 +56,7 @@ export class MessageProcessor {
      * - Must not exceed 1,000,000 XLM (guards against fat-finger errors)
      */
     private validateAmount(amountStr: string): string | null {
-        if (!/^\d+(\.\d+)?$/.test(amountStr)) {
-            return 'validation.invalid_format';
-        }
-        const value = parseFloat(amountStr);
-        if (value <= 0) {
-            return 'validation.zero_amount';
-        }
-        const decimalPart = amountStr.includes('.') ? amountStr.split('.')[1] : '';
-        if (decimalPart.length > 7) {
-            return 'validation.precision_exceeded';
-        }
-        if (value > 1_000_000) {
-            return 'validation.exceeds_max';
-        }
-        return null;
+        return GroupService.validateAmount(amountStr);
     }
 
     public async processCommand(from: string, text: string, locale?: string) {
@@ -510,6 +496,9 @@ export class MessageProcessor {
                 t('create_group.success', lang, { name, id: group.id }),
             );
         } catch (e: any) {
+            if (e instanceof AmountValidationError) {
+                return await this.whatsappService.sendMessage(from, t(e.code, lang));
+            }
             await this.whatsappService.sendMessage(
                 from,
                 t('create_group.failed', lang, { message: e.message }),
@@ -892,6 +881,11 @@ export class MessageProcessor {
             );
             await logSecretAccess(user.id, 'CONTRIBUTE', true);
         } catch (e: any) {
+            if (e instanceof AmountValidationError) {
+                await this.whatsappService.sendMessage(from, t(e.code, lang));
+                await logSecretAccess(user.id, 'CONTRIBUTE', false, e.message);
+                return;
+            }
             // Distinguish a contract-level FAILED transaction from a network error.
             const isTxFailed = e?.message?.includes('Transaction failed on ledger');
             if (isTxFailed) {
