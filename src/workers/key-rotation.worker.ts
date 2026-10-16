@@ -8,10 +8,7 @@ import { logSecretAccess } from '../utils/audit-logger';
 
 export const keyRotationQueueName = 'key-rotation-queue';
 
-export const startKeyRotationWorker = () => {
-    const keyRotationWorker = new Worker(
-        keyRotationQueueName,
-        async (job: Job) => {
+export const processKeyRotationJob = async (job: Job) => {
             const currentVersion = config.CURRENT_ENCRYPTION_KEY_VERSION;
             
             let processedCount = 0;
@@ -102,7 +99,12 @@ export const startKeyRotationWorker = () => {
             }
 
             return { processedCount };
-        },
+};
+
+export const startKeyRotationWorker = () => {
+    const keyRotationWorker = new Worker(
+        keyRotationQueueName,
+        processKeyRotationJob,
         { connection: redisClient as any }
     );
 

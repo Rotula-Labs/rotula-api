@@ -31,6 +31,10 @@ jest.mock('../lib/prisma', () => {
     return { prisma: mockPrisma };
 });
 
+jest.mock('../utils/audit.util', () => ({
+    logSecretAccess: jest.fn().mockResolvedValue(undefined),
+}));
+
 // 2. Mock BullMQ
 const mockWorkerOn = jest.fn();
 const mockWorkerClose = jest.fn();
@@ -53,6 +57,7 @@ jest.mock('bullmq', () => ({
 }));
 
 import { prisma } from '../lib/prisma';
+import { logSecretAccess } from '../utils/audit.util';
 import { startKeyRotationWorker } from '../workers/key-rotation.worker';
 
 describe('key-rotation.worker', () => {
@@ -115,5 +120,46 @@ describe('key-rotation.worker', () => {
         // Decrypt with v2
         const decrypted = decrypt(newWallet.encryptedSecret, newWallet.iv, newWallet.authTag, 2);
         expect(decrypted).toBe('secret-data-0');
+    });
+
+    it('records the failure, excludes the failed id, and zeroes the buffer when decrypt throws', async () => {
+        config.CURRENT_ENCRYPTION_KEY_VERSION = 2;
+        mockUpdateOperations.length = 0;
+        (logSecretAccess as jest.Mock).mockClear();
+
+        const failedUserId = 'user-3';
+        const originalWallet = mockUsers.find(u => u.id === failedUserId)!.stellarWallet;
+        const parsedWallet = JSON.parse(originalWallet);
+        const secretBuffer = Buffer.from(parsedWallet.encryptedSecret, 'base64');
+        const fillSpy = jest.spyOn(secretBuffer, 'fill');
+
+        const decryptSpy = jest.spyOn(
+            require('../utils/encryption.util'),
+            'decrypt'
+        ).mockImplementationOnce(() => {
+            throw new Error('decrypt failed');
+        });
+
+        const findManySpy = prisma.user.findMany as jest.Mock;
+        findManySpy.mockClear();
+
+        worker = startKeyRotationWorker();
+        const result = await processorCallback({ id: 'job-2' });
+
+        expect(result.processedCount).toBe(24);
+        expect(logSecretAccess).toHaveBeenCalledWith(
+            failedUserId,
+            'KEY_ROTATION',
+            false,
+            'decrypt failed'
+        );
+
+        const secondCallArgs = findManySpy.mock.calls[1]?.[0];
+        expect(secondCallArgs?.where?.id).toEqual({ notIn: [failedUserId] });
+
+        expect(fillSpy).toHaveBeenCalledWith(0);
+
+        decryptSpy.mockRestore();
+        fillSpy.mockRestore();
     });
 });
