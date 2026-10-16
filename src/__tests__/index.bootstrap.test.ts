@@ -5,7 +5,7 @@ jest.mock('express', () => {
         listen: jest.fn(() => ({ setTimeout: jest.fn() })),
     };
     const express = jest.fn(() => app);
-    (express as any).json = jest.fn();
+    (express as any).json = jest.fn(() => jest.fn());
     return { __esModule: true, default: express, __app: app };
 });
 
@@ -14,7 +14,7 @@ jest.mock('child_process', () => ({
 }));
 
 jest.mock('@stellar/stellar-sdk', () => ({
-    StrKey: { isValidEd25519PublicKey: jest.fn(() => true) },
+    SttKey: { isValidEd25519PublicKey: jest.fn(() => true) },
 }));
 
 jest.mock('../config/env', () => ({
@@ -77,5 +77,70 @@ describe('server bootstrap', () => {
         expect(startContractSyncWorker).toHaveBeenCalledTimes(1);
         expect(startContributionSchedulerWorker).toHaveBeenCalledTimes(1);
         expect(startPaymentRequestWorker).toHaveBeenCalledTimes(1);
+    });
+
+    it('answers a malformed JSON body with 400 and does not alert', () => {
+        const { observabilityService } = jest.requireMock('../services/observability.service');
+        const parserErrorMiddleware = app.use.mock.calls.find((call) => call.length === 4)?.[0];
+        expect(typeof parserErrorMiddleware).toBe('function');
+
+        const err = Object.assign(new Error('Unexpected token in JSON'), {
+            type: 'entity.parse.failed',
+            status: 400,
+            expose: true,
+        });
+        const res = {
+            status: jest.fn().mockReturnThis(),
+            json: jest.fn().mockReturnThis(),
+        };
+        const next = jest.fn();
+
+        parserErrorMiddleware(err, {}, res, next);
+
+        expect(res.status).toHaveBeenCalledWith(400);
+        expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ error: expect.any(String) }));
+        expect(next).not.toHaveBeenCalled();
+        expect(observabilityService.alertCriticalFailure).not.toHaveBeenCalled();
+    });
+
+    it('answers an oversized body with 413 and does not alert', () => {
+        const { observabilityService } = jest.requireMock('../services/observability.service');
+        const parserErrorMiddleware = app.use.mock.calls.find((call) => call.length === 4)?.[0];
+        expect(typeof parserErrorMiddleware).toBe('function');
+
+        const err = Object.assign(new Error('request entity too large'), {
+            type: 'entity.too.large',
+            status: 413,
+            expose: true,
+        });
+        const res = {
+            status: jest.fn().mockReturnThis(),
+            json: jest.fn().mockReturnThis(),
+        };
+        const next = jest.fn();
+
+        parserErrorMiddleware(err, {}, res, next);
+
+        expect(res.status).toHaveBeenCalledWith(413);
+        expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ error: expect.any(String) }));
+        expect(next).not.toHaveBeenCalled();
+        expect(observabilityService.alertCriticalFailure).not.toHaveBeenCalled();
+    });
+
+    it('passes a genuine handler error to the general error handler', () => {
+        const parserErrorMiddleware = app.use.mock.calls.find((call) => call.length === 4)?.[0];
+        expect(typeof parserErrorMiddleware).toBe('function');
+
+        const err = new Error('boom');
+        const res = {
+            status: jest.fn().mockReturnThis(),
+            json: jest.fn().mockReturnThis(),
+        };
+        const next = jest.fn();
+
+        parserErrorMiddleware(err, {}, res, next);
+
+        expect(next).toHaveBeenCalledWith(err);
+        expect(res.status).not.toHaveBeenCalled();
     });
 });

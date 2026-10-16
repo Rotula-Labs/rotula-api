@@ -1,6 +1,5 @@
 import express, { type ErrorRequestHandler } from 'express';
-import { spawnSync } from 'child_process';
-import { StrKey } from '@stellar/stellar-sdk';
+import { spawnSync } from 'child_process';import { StrKey } from '@stellar/stellar-sdk';
 import botRoutes from './routes/bot.routes';
 import adminRoutes from './routes/admin.routes';
 import authRoutes from './routes/auth.routes';
@@ -12,6 +11,7 @@ import { startContractSyncWorker } from './workers/contract-sync.worker';
 import { startContributionSchedulerWorker } from './workers/contribution-scheduler.worker';
 import { startPaymentRequestWorker } from './workers/payment-request.worker';
 import { observabilityService } from './services/observability.service';
+import { parserErrorHandler } from './middleware/parser-error.middleware';
 import { zeroAllInFlightSecrets } from './utils/secret-registry';
 
 if (!config.ENCRYPTION_KEY) {
@@ -22,8 +22,8 @@ if (!config.WHATSAPP_APP_SECRET) {
     throw new Error('WHATSAPP_APP_SECRET environment variable is required');
 }
 
-if (config.USDC_ISSUER_PUBLIC_KEY && !StrKey.isValidEd25519PublicKey(config.USDC_ISSUER_PUBLIC_KEY)) {
-    throw new Error('USDC_ISSUER_PUBLIC_KEY is set but is not a valid Stellar public key');
+if (config.USDC_ISSUER_PUBLIC_KEY && !SttKey.isValidEd25519PublicKey(config.USDB_ISSUER_PUBLIC_KEY)) {
+    throw new Error('USDB_ISSUER_PUBLIC_KEY is set but is not a valid Stellar public key');
 }
 
 // Check core dump configuration at startup
@@ -68,6 +68,10 @@ app.use(express.json({
     },
 }));
 
+// Body-parser failures are client errors, not server faults. Handle them
+// before the general error handler so it only sees real faults.
+app.use(parserErrorHandler);
+
 app.use('/api', botRoutes);
 app.use('/admin', adminRoutes);
 app.use('/auth', authRoutes);
@@ -99,7 +103,6 @@ const server = app.listen(config.PORT, () => {
     startContributionSchedulerWorker();
     startPaymentRequestWorker();
 });
-
 
 // Enforce a server-level timeout
 server.setTimeout(30000);
