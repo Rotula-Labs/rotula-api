@@ -1,6 +1,7 @@
 import { prisma } from '../lib/prisma';
 import { StellarService } from './stellar.service';
 import { decrypt } from '../utils/encryption.util';
+import { Decimal } from '@prisma/client/runtime/library';
 
 export const MAX_PENDING_REQUESTS_PER_USER = 5;
 const REQUEST_TTL_HOURS = 24;
@@ -12,7 +13,7 @@ const RETRY_DELAY_MS = 200;
 
 /** Error thrown when a payment request cannot be accepted in its current state. */
 export class PaymentRequestError extends Error {
-    constructor(public code: 'not_found' | 'not_pending' | 'expired' | 'not_responder' | 'insufficient_balance' | 'too_many_pending') {
+    constructor(public code: 'not_found' | 'not_pending' | 'expired' | 'not_responder' | 'insufficient_balance' | 'too_many_pending' | 'invalid_amount') {
         super(`Payment request error: ${code}`);
         this.name = 'PaymentRequestError';
     }
@@ -34,6 +35,8 @@ export class PaymentRequestService {
     }
 
     public async createRequest(requesterId: string, responderId: string, amount: string): Promise<{ id: string; expiresAt: Date }> {
+        const validatedAmount = this.validateAmount(amount);
+
         const pendingCount = await prisma.paymentRequest.count({
             where: { requesterId, status: 'PENDING' },
         });
@@ -46,13 +49,34 @@ export class PaymentRequestService {
             data: {
                 requesterId,
                 responderId,
-                amount,
+                amount: validatedAmount,
                 status: 'PENDING',
                 expiresAt,
             },
         });
 
         return { id: request.id, expiresAt };
+    }
+
+    /**
+     * Parses and validates a request amount at the boundary. Requires a
+     * positive value with at most 7 decimal places (Stellar's precision).
+     * Returns the amount unchanged when valid.
+     */
+    private validateAmount(amount: string): string {
+        if (typeof amount !== 'string' || amount.trim() === '') {
+            throw new PaymentRequestError('invalid_amount');
+        }
+        let parsed: Decimal;
+        try {
+            parsed = new Decimal(amount);
+        } catch {
+            throw new PaymentRequestError('invalid_amount');
+        }
+        if (!parsed.isFinite() || parsed.lte(0) || parsed.decimalPlaces() > 7) {
+            throw new PaymentRequestError('invalid_amount');
+        }
+        return amount;
     }
 
     /**

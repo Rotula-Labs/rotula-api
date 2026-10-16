@@ -83,6 +83,56 @@ describe('PaymentRequestService', () => {
             expect(result.expiresAt.getTime()).toBeGreaterThanOrEqual(expectedExpiry.getTime() - 1000);
         });
 
+        it('rejects an empty amount before writing to the database', async () => {
+            (prisma.paymentRequest.count as jest.Mock).mockResolvedValue(0);
+
+            await expect(service.createRequest('u1', 'u2', '')).rejects.toMatchObject({ code: 'invalid_amount' });
+            expect(prisma.paymentRequest.create).not.toHaveBeenCalled();
+        });
+
+        it('rejects a non-numeric amount before writing to the database', async () => {
+            (prisma.paymentRequest.count as jest.Mock).mockResolvedValue(0);
+
+            await expect(service.createRequest('u1', 'u2', 'abc')).rejects.toMatchObject({ code: 'invalid_amount' });
+            expect(prisma.paymentRequest.create).not.toHaveBeenCalled();
+        });
+
+        it('rejects a zero amount before writing to the database', async () => {
+            (prisma.paymentRequest.count as jest.Mock).mockResolvedValue(0);
+
+            await expect(service.createRequest('u1', 'u2', '0')).rejects.toMatchObject({ code: 'invalid_amount' });
+            expect(prisma.paymentRequest.create).not.toHaveBeenCalled();
+        });
+
+        it('rejects a negative amount before writing to the database', async () => {
+            (prisma.paymentRequest.count as jest.Mock).mockResolvedValue(0);
+
+            await expect(service.createRequest('u1', 'u2', '-5')).rejects.toMatchObject({ code: 'invalid_amount' });
+            expect(prisma.paymentRequest.create).not.toHaveBeenCalled();
+        });
+
+        it('rejects an amount with too many decimal places before writing to the database', async () => {
+            (prisma.paymentRequest.count as jest.Mock).mockResolvedValue(0);
+
+            await expect(service.createRequest('u1', 'u2', '1.12345678')).rejects.toMatchObject({ code: 'invalid_amount' });
+            expect(prisma.paymentRequest.create).not.toHaveBeenCalled();
+        });
+
+        it('stores a valid amount unchanged', async () => {
+            (prisma.paymentRequest.count as jest.Mock).mockResolvedValue(0);
+            (prisma.paymentRequest.create as jest.Mock).mockImplementation(({ data }) =>
+                Promise.resolve({ id: 'new-req', ...data }));
+
+            const result = await service.createRequest('u1', 'u2', '50.1234567');
+
+            expect(prisma.paymentRequest.create).toHaveBeenCalledWith(expect.objectContaining({
+                data: expect.objectContaining({
+                    amount: '50.1234567',
+                }),
+            }));
+            expect(result.amount).toBe('50.1234567');
+        });
+
         it('rejects when the requester already has 5 pending requests', async () => {
             (prisma.paymentRequest.count as jest.Mock).mockResolvedValue(5);
 
