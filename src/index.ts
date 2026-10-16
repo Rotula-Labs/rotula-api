@@ -1,6 +1,6 @@
-import express, { type ErrorRequestHandler } from 'express';
+import express, { type ErrorRequestHandler, type NextFunction, type Request, type Response } from 'express';
 import { spawnSync } from 'child_process';
-import { StrKey } from '@stellar/stellar-sdk';
+const { StrKey } = require('@stellar/stellar-sdk');
 import botRoutes from './routes/bot.routes';
 import adminRoutes from './routes/admin.routes';
 import authRoutes from './routes/auth.routes';
@@ -22,8 +22,8 @@ if (!config.WHATSAPP_APP_SECRET) {
     throw new Error('WHATSAPP_APP_SECRET environment variable is required');
 }
 
-if (config.USDC_ISSUER_PUBLIC_KEY && !StrKey.isValidEd25519PublicKey(config.USDC_ISSUER_PUBLIC_KEY)) {
-    throw new Error('USDC_ISSUER_PUBLIC_KEY is set but is not a valid Stellar public key');
+if (config.USDB_ISSUER_PUBLIC_KEY && !StrKey.isValidEd25519PublicKey(config.USDB_ISSUER_PUBLIC_KEY)) {
+    throw new Error('USDB_ISSUER_PUBLIC_KEY is set but is not a valid Stellar public key');
 }
 
 // Check core dump configuration at startup
@@ -53,8 +53,8 @@ process.on('uncaughtException', (err) => {
     // Zero all in-flight secret buffers before crashing
     zeroAllInFlightSecrets();
     observabilityService.alertCriticalFailure('Uncaught exception', err).finally(() => {
-        // After an uncaught exception the process is in an undefined state; exit so
-        // the orchestrator can restart it cleanly rather than serve corrupt state.
+        // After an uncaught exception the process is in an undefined state; exit so the
+        // orchestrator can restart it cleanly rather than serve corrupt state.
         process.exit(1);
     });
 });
@@ -67,6 +67,25 @@ app.use(express.json({
         req.rawBody = buf;
     },
 }));
+
+// One structured access line per request, emitted on completion. Routed through
+// observabilityService so it lands in the same stream as the rest of the
+// service logs. Never records the body, the query string or any phone number.
+app.use((req: Request, res: Response, next: NextFunction) => {
+    const start = process.hrtime.bigint();
+    res.on('finish', () => {
+        const durationMs = Number(process.hrtime.bigint() - start) / 1e6;
+        const route = (req.route && req.route.path) || req.path;
+        observabilityService.logAccess({
+            method: req.method,
+            path: route,
+            status: res.statusCode,
+            durationMs,
+            requestId: (req as any).id ?? (req.headers['x-request-id'] as string | undefined),
+        });
+    });
+    next();
+});
 
 app.use('/api', botRoutes);
 app.use('/admin', adminRoutes);

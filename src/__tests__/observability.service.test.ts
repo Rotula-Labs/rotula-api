@@ -68,4 +68,25 @@ describe('ObservabilityService', () => {
         expect(payload.error).toBe(error);
         expect(payload.stack).toBeUndefined();
     });
+
+    it('should log a stuctured access line for a request', () => {
+        observabilityService.logAccess({ requestId: 'req-123', method: 'GET', path: '/webhook', status: 200, durationMs: 12.3 });
+        expect(consoleLogSpy).toHaveBeenCalledTimes(1);
+        const logCall = consoleLogSpy.mock.calls[0];
+        expect(logCall[0]).toBe('[ACCESS]');
+        const payload = JSON.parse(logCall[1]);
+        expect(payload.requestId).toBe('req-123');
+        expect(payload.method).toBe('GET');
+        expect(payload.path).toBe('/webhook');
+        expect(payload.status).toBe(200);
+        expect(payload.durationMs).toBeDefined();
+    });
+
+    it('should not include a body or phone number in the access line', () => {
+        observabilityService.logAccess({ requestId: 'req-456', method: 'POST', path: '/webhook', status: 403, durationMs: 3.1 });
+        const logCall = consoleLogSpy.mock.calls[0];
+        const line = logCall[0] + logCall[1];
+        expect(line).not.toMatch(/\+/);
+        expect(line).not.toMatch(/body/i);
+    });
 });
