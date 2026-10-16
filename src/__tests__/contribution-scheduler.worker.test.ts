@@ -7,6 +7,7 @@ import { Job } from 'bullmq';
 
 jest.mock('@prisma/client', () => {
     const mockPrisma = {
+        $use: jest.fn(),
         savingsGroup: {
             update: jest.fn(),
             findUnique: jest.fn()
