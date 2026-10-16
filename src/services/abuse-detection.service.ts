@@ -33,16 +33,21 @@ export class AbuseDetectionService {
         const now = Date.now();
         const entry: CommandHistoryEntry = { command: commandText, timestamp: now };
         
+        let redisSucceeded = false;
         if (this.isRedisAvailable()) {
             try {
                 const key = `command_history:${phoneNumber}`;
                 await redisClient.lpush(key, JSON.stringify(entry));
                 await redisClient.ltrim(key, 0, 19); // Keep last 20 commands
                 await redisClient.expire(key, 24 * 60 * 60); // 24 hours
-                return;
+                redisSucceeded = true;
             } catch (err) {
                 console.warn('Redis error in recordCommand, falling back to in-memory:', err);
             }
+        }
+        
+        if (redisSucceeded) {
+            return;
         }
         
         // In-memory fallback
@@ -55,14 +60,20 @@ export class AbuseDetectionService {
     }
     
     public async getCommandHistory(phoneNumber: string): Promise<CommandHistoryEntry[]> {
+        let redisSucceeded = false;
         if (this.isRedisAvailable()) {
             try {
                 const key = `command_history:${phoneNumber}`;
                 const rawList = await redisClient.lrange(key, 0, -1);
+                redisSucceeded = true;
                 return rawList.map(item => JSON.parse(item));
             } catch (err) {
                 console.warn('Redis error in getCommandHistory, falling back to in-memory:', err);
             }
+        }
+        
+        if (redisSucceeded) {
+            return [];
         }
         
         return this.inMemoryHistory.get(phoneNumber) || [];
@@ -77,6 +88,7 @@ export class AbuseDetectionService {
         
         let flagged = false;
         let hitsCount = 0;
+        let redisSucceeded = false;
         
         if (this.isRedisAvailable()) {
             try {
@@ -87,6 +99,7 @@ export class AbuseDetectionService {
                 await redisClient.zremrangebyscore(hitsKey, '-inf', now - tenMinutesMs);
                 hitsCount = await redisClient.zcard(hitsKey);
                 await redisClient.expire(hitsKey, 600); // 10 minutes TTL
+                redisSucceeded = true;
                 
                 if (hitsCount >= 3) {
                     flagged = true;
@@ -98,7 +111,7 @@ export class AbuseDetectionService {
         }
         
         // Fallback or run in-memory if Redis failed / was unavailable
-        if (!this.isRedisAvailable()) {
+        if (!redisSucceeded) {
             const hits = this.inMemoryHits.get(phoneNumber) || [];
             hits.push(now);
             // Filter hits within last 10 minutes
@@ -144,28 +157,39 @@ export class AbuseDetectionService {
         }
         
         // Store flag in Redis with a 24-hour TTL
+        let redisSucceeded = false;
         if (this.isRedisAvailable()) {
             try {
                 const flagKey = `abuse_flag:${phoneNumber}`;
                 await redisClient.set(flagKey, JSON.stringify(logData), 'EX', 24 * 60 * 60);
-                return;
+                redisSucceeded = true;
             } catch (err) {
                 console.warn('Redis error in flagUserForReview, falling back to in-memory:', err);
             }
+        }
+        
+        if (redisSucceeded) {
+            return;
         }
         
         this.inMemoryFlags.set(phoneNumber, JSON.stringify(logData));
     }
     
     public async isUserFlagged(phoneNumber: string): Promise<boolean> {
+        let redisSucceeded = false;
         if (this.isRedisAvailable()) {
             try {
                 const flagKey = `abuse_flag:${phoneNumber}`;
                 const exists = await redisClient.exists(flagKey);
+                redisSucceeded = true;
                 return exists === 1;
             } catch (err) {
                 console.warn('Redis error in isUserFlagged, falling back to in-memory:', err);
             }
+        }
+        
+        if (redisSucceeded) {
+            return false;
         }
         
         return this.inMemoryFlags.has(phoneNumber);
