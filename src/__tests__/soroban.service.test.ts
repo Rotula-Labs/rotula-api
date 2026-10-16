@@ -265,6 +265,80 @@ describe('SorobanService.removeMember()', () => {
     });
 });
 
+// ── simulateAndAssembleTransaction ───────────────────────────────────────────
+
+describe('simulateAndAssembleTransaction()', () => {
+    let service: SorobanService;
+    let mockServer: any;
+    let keypair: StellarSdk.Keypair;
+    let tx: StellarSdk.Transaction;
+
+    beforeEach(() => {
+        keypair = StellarSdk.Keypair.random();
+        service = new SorobanService('https://soroban-testnet.stellar.org');
+        mockServer = {
+            simulateTransaction: jest.fn(),
+            sendTransaction: jest.fn(),
+            getTransaction: jest.fn(),
+            getAccount: jest.fn().mockResolvedValue(new StellarSdk.Account(keypair.publicKey(), '100')),
+        };
+        service.server = mockServer;
+
+        const account = new StellarSdk.Account(keypair.publicKey(), '100');
+        tx = new StellarSdk.TransactionBuilder(account, {
+            fee: '100',
+            networkPassphrase: StellarSdk.Networks.TESTNET,
+        })
+            .addOperation(StellarSdk.Operation.manageData({ name: 'test', value: null }))
+            .setTimeout(30)
+            .build();
+    });
+
+    it('retries up to three times on PENDING and returns the last response', async () => {
+        const pending = { status: 'PENDING', hash: 'pending_hash' };
+        mockServer.simulateTransaction.mockResolvedValue(pending);
+
+        const result = await (service as any).simulateAndAssembleTransaction(tx, mockServer);
+
+        expect(mockServer.simulateTransaction).toHaveBeenCalledTimes(3);
+        expect(result).toBe(pending);
+    }, 10000);
+
+    it('throws with the SDK error text when the simulation returns an error', async () => {
+        mockServer.simulateTransaction.mockResolvedValue({
+            error: 'HostError: contract trapped',
+        });
+
+        await expect(
+            (service as any).simulateAndAssembleTransaction(tx, mockServer),
+        ).rejects.toThrow('HostError: contract trapped');
+    });
+
+    it('rebuilds the transaction with sorobanData when a restorePreamble is present', async () => {
+        mockServer.simulateTransaction.mockResolvedValue(
+            makeSimSuccess({
+                restorePreamble: {
+                    transactionData: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+                    minResourceFee: '500',
+                },
+            }),
+        );
+
+        const result = await (service as any).simulateAndAssembleTransaction(tx, mockServer);
+
+        expect(result).toBeInstanceOf(StellarSdk.Transaction);
+        expect(result.sorobanData).toBeDefined();
+    });
+
+    it('bumps a low assembled fee to 1000 stroops', async () => {
+        mockServer.simulateTransaction.mockResolvedValue(makeSimSuccess({ minResourceFee: '100' }));
+
+        const result = await (service as any).simulateAndAssembleTransaction(tx, mockServer);
+
+        expect(result.fee).toBe('1000');
+    });
+});
+
 // ── queryContribution ─────────────────────────────────────────────────────────
 
 describe('SorobanService.queryContribution()', () => {
