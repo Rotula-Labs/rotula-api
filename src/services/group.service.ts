@@ -1,4 +1,4 @@
-import { PrismaClient, Prisma } from '@prisma/client';
+import { PrismaClient, Prisma, GroupMemberRole, GroupMemberStatus, ContributionFrequency } from '@prisma/client';
 import { scheduleGroupCycle, removeGroupCycle } from '../queue/contribution-scheduler.queue';
 import { enqueueContractDeployment } from '../queue/soroban-deployment.queue';
 
@@ -27,7 +27,7 @@ export class GroupService {
         }
     }
 
-    public async createGroup(userId: string, name: string, amount: string | Prisma.Decimal, frequency: string) {
+    public async createGroup(userId: string, name: string, amount: string | Prisma.Decimal, frequency: ContributionFrequency) {
         GroupService.validateAmount(amount);
         const group = await prisma.savingsGroup.create({
             data: {
@@ -38,7 +38,7 @@ export class GroupService {
                 members: {
                     create: {
                         userId: userId,
-                        role: 'CREATOR'
+                        role: GroupMemberRole.CREATOR
                     }
                 }
             }
@@ -65,7 +65,7 @@ export class GroupService {
         }
     }
 
-    public async updateGroupFrequency(groupId: string, newFrequency: string) {
+    public async updateGroupFrequency(groupId: string, newFrequency: ContributionFrequency) {
         const group = await prisma.savingsGroup.findUnique({ where: { id: groupId } });
         if (!group) throw new Error('Group not found');
         
@@ -89,17 +89,17 @@ export class GroupService {
             data: {
                 userId,
                 groupId,
-                role: 'MEMBER'
+                role: GroupMemberRole.MEMBER
             }
         });
     }
 
     public async getGroupStatus(userId: string) {
         return await prisma.groupMember.findMany({
-            where: { userId, status: { not: 'LEFT' } },
+            where: { userId, status: { not: GroupMemberStatus.LEFT } },
             include: {
                 group: {
-                    include: { members: { where: { status: { not: 'LEFT' } }, include: { user: true } } }
+                    include: { members: { where: { status: { not: GroupMemberStatus.LEFT } }, include: { user: true } } }
                 }
             }
         });
@@ -107,7 +107,7 @@ export class GroupService {
 
     public async getMembersByGroup(groupId: string) {
         return await prisma.groupMember.findMany({
-            where: { groupId, status: { not: 'LEFT' } },
+            where: { groupId, status: { not: GroupMemberStatus.LEFT } },
             include: { user: true }
         });
     }

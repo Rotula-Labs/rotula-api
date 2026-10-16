@@ -1,6 +1,6 @@
 import { Worker, Job } from 'bullmq';
 import { config } from '../config/env';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, ContributionFrequency } from '@prisma/client';
 import { WhatsAppService } from '../services/whatsapp.service';
 import { PayoutService } from '../services/payout.service';
 import { enqueueDelayedReminder, enqueueCycleEnd } from '../queue/contribution-scheduler.queue';
@@ -62,14 +62,14 @@ async function handleCycleStart(job: Job, whatsappService: WhatsAppService) {
     const currentCycleStart = now;
     let currentCycleEnd = new Date(now);
     
-    switch (frequency.toUpperCase()) {
-        case 'WEEKLY':
+    switch (frequency as ContributionFrequency) {
+        case ContributionFrequency.WEEKLY:
             currentCycleEnd.setDate(currentCycleEnd.getDate() + 7);
             break;
-        case 'BIWEEKLY':
+        case ContributionFrequency.BIWEEKLY:
             currentCycleEnd.setDate(currentCycleEnd.getDate() + 14);
             break;
-        case 'MONTHLY':
+        case ContributionFrequency.MONTHLY:
             currentCycleEnd.setMonth(currentCycleEnd.getMonth() + 1);
             break;
         default:

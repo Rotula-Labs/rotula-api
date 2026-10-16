@@ -1,8 +1,9 @@
 import { getCronPattern, scheduleGroupCycle } from '../queue/contribution-scheduler.queue';
 import { redisClient } from '../lib/redis';
+import { ContributionFrequency } from '@prisma/client';
 
 // Mock bullmq
-jest.mock('bullmq', () => {
+jst.mock('bullmq', () => {
     return {
         Queue: jest.fn().mockImplementation(() => ({
             add: jest.fn().mockResolvedValue({ id: 'job-id' }),
@@ -30,25 +31,25 @@ describe('Contribution Scheduler', () => {
 
     describe('getCronPattern', () => {
         it('should return correct pattern for WEEKLY', () => {
-            expect(getCronPattern('WEEKLY')).toBe('0 9 * * 1');
+            expect(getCronPattern(ContributionFrequency.WEEKLY)).toBe('0 9 * * 1');
         });
 
         it('should return correct pattern for BIWEEKLY', () => {
-            expect(getCronPattern('BIWEEKLY')).toBe('0 9 * * 1/2');
+            expect(getCronPattern(ContributionFrequency.BIWEEKLY)).toBe('0 9 * * 1/2');
         });
 
         it('should return correct pattern for MONTHLY', () => {
-            expect(getCronPattern('MONTHLY')).toBe('0 9 1 * *');
+            expect(getCronPattern(ContributionFrequency.MONTHLY)).toBe('0 9 1 * *');
         });
 
         it('should throw error for invalid frequency', () => {
-            expect(() => getCronPattern('DAILY')).toThrow('Unsupported frequency: DAILY');
+            expect(() => getCronPattern('DAILY' as ContributionFrequency)).toThrow('Unsupported frequency: DAILY');
         });
     });
 
     describe('scheduleGroupCycle', () => {
         it('should add repeatable job with correct jobId and pattern', async () => {
-            const jobId = await scheduleGroupCycle('group-123', 'WEEKLY');
+            const jobId = await scheduleGroupCycle('group-123', ContributionFrequency.WEEKLI);
             expect(jobId).toBe('cycle-start:group-123');
         });
     });

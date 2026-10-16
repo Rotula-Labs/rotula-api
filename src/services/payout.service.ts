@@ -1,4 +1,4 @@
-import { PrismaClient, Prisma } from '@prisma/client';
+import { PrismaClient, Prisma, GroupMemberRole } from '@prisma/client';
 import { WhatsAppService } from './whatsapp.service';
 import { SorobanService } from './soroban.service';
 import { config } from '../config/env';
@@ -70,7 +70,7 @@ export class PayoutService {
         if (!group) throw new Error('Group not found');
 
         const requester = group.members.find((m: any) => m.userId === requesterUserId);
-        if (!requester || requester.role !== 'CREATOR') {
+        if (!requester || requester.role !== GroupMemberRole.CREATOR) {
             throw new Error('Only the group creator can set the payout order.');
         }
 
@@ -207,7 +207,7 @@ export class PayoutService {
         if (!group) throw new Error('Group not found');
 
         const requester = group.members.find((m: any) => m.userId === requesterUserId);
-        if (!requester || requester.role !== 'CREATOR') {
+        if (!requester || requester.role !== GroupMemberRole.CREATOR) {
             throw new Error('Only the group creator can skip a defaulting member.');
         }
 
@@ -400,7 +400,7 @@ export class PayoutService {
 
         await this.sendFinalWarnings(groupId);
 
-        const creator = status.group.members.find((m: any) => m.role === 'CREATOR');
+        const creator = status.group.members.find((m: any) => m.role === GroupMemberRole.CREATOR);
         if (creator?.user?.phoneNumber) {
             await this.whatsappService.sendMessage(
                 creator.user.phoneNumber,
