@@ -6,7 +6,8 @@
   "scripts": {
     "start": "ts-node src/index.ts",
     "dev": "nodemon src/index.ts",
-    "test": "jest"
+    "test": "jest",
+    "check-locale-parity": "ts-node scripts/check-locale-parity.ts"
   },
   "repository": {
     "type": "git",
@@ -16,7 +17,7 @@
   "author": "",
   "license": "MIT",
   "homepage": "https://github.com/Rotula-Labs/rotula-api#readme",
-  "type": "commonjs",
+  "type": "commonsjs",
   "dependencies": {
     "@prisma/client": "^5.11.0",
     "@stellar/stellar-sdk": "^15.1.0",
