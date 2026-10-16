@@ -163,9 +163,9 @@ model ReconciliationMismatch {
   id            String    @id @default(uuid())
   groupId       String
   userId        String
-  /// Amount returned by the Soroban contract's get_contribution() (in stroops)
+  /// Amount returned by the Soroban contract's get_contribution(), stored in stroops
   onChainAmount Decimal
-  /// Sum of COMPLETED Contribution records for this user+group in the current cycle
+  /// Sum of COMPLETED Contribution records for this user+group in the current cycle, stored in stroops
   dbAmount      Decimal
   detectedAt    DateTime  @default(now())
   resolvedAt    DateTime?
