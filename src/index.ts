@@ -68,6 +68,28 @@ app.use(express.json({
     },
 }));
 
+// Guard JSON POST routes: reject requests that don't declare a JSON content
+// type with a 415 so callers aren't told their payload is missing when it was
+// simply never parsed. GET routes are unaffected.
+const requireJsonContentType: express.RequestHandler = (req, res, next) => {
+    if (req.method === 'GET' || req.method === 'HEAD') {
+        return next();
+    }
+    const contentType = req.headers['content-type'];
+    if (!contentType || !contentType.toLowerCase().includes('application/json')) {
+        res.status(415).json({
+            error: 'Unsupported Media Type',
+            message: 'Content-Type must be application/json',
+        });
+        return;
+    }
+    next();
+};
+
+app.use('/api', requireJsonContentType);
+app.use('/admin', requireJsonContentType);
+app.use('/auth', requireJsonContentType);
+
 app.use('/api', botRoutes);
 app.use('/admin', adminRoutes);
 app.use('/auth', authRoutes);

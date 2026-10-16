@@ -5,6 +5,14 @@ import { keyRotationQueue } from '../queue/key-rotation.queue';
 const router = Router();
 const prisma = new PrismaClient();
 
+const requireJsonContentType = (req: Request, res: Response, next: NextFunction) => {
+    const contentType = req.headers['content-type'];
+    if (!contentType || !contentType.toLowerCase().includes('application/json')) {
+        return res.status(415).json({ error: 'Unsupported Media Type: Content-Type must be application/json' });
+    }
+    next();
+};
+
 const adminAuth = (req: Request, res: Response, next: NextFunction) => {
     const authHeader = req.headers.authorization;
     const adminToken = process.env.ADMIN_TOKEN;
@@ -17,7 +25,7 @@ const adminAuth = (req: Request, res: Response, next: NextFunction) => {
 };
 
 router.use(adminAuth);
-router.post('/key-rotation/start', async (req, res) => {
+router.post('/key-rotation/start', requireJsonContentType, async (req, res) => {
     try {
         const activeJobs = await keyRotationQueue.getActiveCount();
         const waitingJobs = await keyRotationQueue.getWaitingCount();
@@ -95,7 +103,7 @@ router.get('/reconciliation/status', async (req, res) => {
  * Marks a single mismatch as resolved after admin investigation.
  * Body: { resolvedBy: string } — the admin's userId or identifier.
  */
-router.patch('/reconciliation/:id/resolve', async (req, res) => {
+router.patch('/reconciliation/:id/resolve', requireJsonContentType, async (req, res) => {
     const { id } = req.params;
     const { resolvedBy } = req.body as { resolvedBy?: string };
 
