@@ -79,6 +79,8 @@ The backend is a coordinator, not proof that a transfer has settled. A transacti
 - `src/services/` — user, group, payment request, payout, WhatsApp, Stellar, and Soroban operations.
 - `src/queue/`, `src/workers/` — asynchronous message handling, deployment, contribution reconciliation, payment requests, and scheduled jobs.
 - `prisma/` — PostgreSQL schema and migrations.
+- `scripts/` — operational migrations: `backfill-phone-encryption.ts` encrypts existing phone numbers and must run before the plaintext unique index is dropped; `encrypt-wallets.ts` encrypts stored wallet material.
+- `contracts/` — `savings_group.wasm`, the compiled Soroban artefact that `CONTRACT_WASM_PATH` resolves to by default, built from the [rotula-contracts](https://github.com/Rotula-Labs/rotula-contracts) repository.
 - `src/locales/` — response strings for English, French, Hausa, Igbo, Nigerian Pidgin, and Yoruba.
 - `src/utils/` — encryption, secret handling, audit logging, and shared utilities.
 
