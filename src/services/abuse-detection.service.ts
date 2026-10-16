@@ -1,5 +1,6 @@
 import { redisClient } from '../lib/redis';
 import { WhatsAppService } from './whatsapp.service';
+import { isVerifiedRequest } from '../lib/request-verification';
 
 const whatsappService = new WhatsAppService();
 
@@ -32,6 +33,10 @@ export class AbuseDetectionService {
     public async recordCommand(phoneNumber: string, commandText: string): Promise<void> {
         const now = Date.now();
         const entry: CommandHistoryEntry = { command: commandText, timestamp: now };
+
+        if (!isVerifiedRequest()) {
+            return;
+        }
         
         if (this.isRedisAvailable()) {
             try {
@@ -71,6 +76,10 @@ export class AbuseDetectionService {
     public async recordFinancialLimitHit(phoneNumber: string, commandText: string): Promise<boolean> {
         const now = Date.now();
         const tenMinutesMs = 10 * 60 * 1000;
+
+        if (!isVerifiedRequest()) {
+            return false;
+        }
         
         // Always record this hit in command history too
         await this.recordCommand(phoneNumber, `[RATE LIMIT HIT] ${commandText}`);
