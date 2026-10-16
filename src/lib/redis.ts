@@ -1,5 +1,5 @@
 import Redis from 'ioredis';
-import { config } from '../config/env';
+const { config } = require('../config/env');
 
 // Initialize Redis client using the existing configuration
 const options: any = { enableOfflineQueue: false, maxRetriesPerRequest: null };
@@ -9,5 +9,5 @@ if (process.env.NODE_ENV === 'test') {
 export const redisClient = new Redis(config.REDIS_URL, options);
 
 redisClient.on('error', (err) => {
-    console.error('Redis client error:', err);
+    logError('Redis client error', err, { client: 'redis' });
 });
