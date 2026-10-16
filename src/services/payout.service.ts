@@ -316,14 +316,15 @@ export class PayoutService {
 
         const cycleNumber = (group as any).totalCycles + 1;
 
+        const recipientUserId = order[(group as any).currentPayoutIndex];
+
         // Idempotency: a cycle-end retry or an extended-deadline re-check should
         // never pay the same recipient twice for the same cycle.
-        const existingPayout = await prisma.payout.findFirst({ where: { groupId, cycleNumber } });
+        const existingPayout = await prisma.payout.findFirst({ where: { groupId, recipientId: recipientUserId, cycleNumber } });
         if (existingPayout) {
             return existingPayout;
         }
 
-        const recipientUserId = order[(group as any).currentPayoutIndex];
         const recipientMember = group.members.find((m: any) => m.userId === recipientUserId);
         if (!recipientMember?.user?.stellarWallet) {
             throw new Error(`Recipient ${recipientUserId} has no configured wallet; cannot execute payout.`);

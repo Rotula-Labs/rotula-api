@@ -210,6 +210,9 @@ describe('PayoutService', () => {
             expect(prisma.payout.create).toHaveBeenCalledWith({
                 data: expect.objectContaining({ recipientId: 'u2', cycleNumber: 1 }),
             });
+            expect(prisma.payout.findFirst).toHaveBeenCalledWith({
+                where: { groupId: 'g1', recipientId: 'u2', cycleNumber: 1 },
+            });
             expect(prisma.savingsGroup.update).toHaveBeenCalledWith({
                 where: { id: 'g1' },
                 data: { currentPayoutIndex: 2 },
@@ -233,6 +236,9 @@ describe('PayoutService', () => {
             const result = await payoutService.executePayout('g1');
 
             expect(result).toBe(existing);
+            expect(prisma.payout.findFirst).toHaveBeenCalledWith({
+                where: { groupId: 'g1', recipientId: 'u1', cycleNumber: 1 },
+            });
             expect(mockSorobanPayout).not.toHaveBeenCalled();
             expect(prisma.payout.create).not.toHaveBeenCalled();
         });
