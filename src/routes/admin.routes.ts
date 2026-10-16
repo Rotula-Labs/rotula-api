@@ -1,13 +1,14 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { keyRotationQueue } from '../queue/key-rotation.queue';
+import { config } from '../config/env';
 
 const router = Router();
 const prisma = new PrismaClient();
 
 const adminAuth = (req: Request, res: Response, next: NextFunction) => {
     const authHeader = req.headers.authorization;
-    const adminToken = process.env.ADMIN_TOKEN;
+    const adminToken = config.ADMIN_TOKEN;
     
     if (!adminToken || !authHeader || authHeader !== `Bearer ${adminToken}`) {
         return res.status(401).json({ error: 'Unauthorized' });

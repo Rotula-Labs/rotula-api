@@ -142,7 +142,7 @@ Copy the required values into a local `.env` (never committed). Grouped by area:
 | `USDC_TOKEN_ADDRESS`, `USDC_ISSUER_PUBLIC_KEY`                                      | Assets   | Configured savings token contract and issuer              |
 | `SEP10_HOME_DOMAIN`, `SEP10_SERVER_SECRET`, `SEP10_CHALLENGE_TTL_SECONDS`           | SEP-10   | Challenge transaction settings for Stellar authentication |
 | `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_APP_SECRET`, `VERIFY_TOKEN` | WhatsApp | Cloud API credentials and webhook verification            |
-| `ADMIN_TOKEN`, `ADMIN_PHONE_NUMBER`                                                 | Admin    | Operator access to administrative commands                |
+| `ADMIN_TOKEN`, `ADMIN_PHONE_NUMBER`                                                 | Admin    | Operator access to administrative commands; `ADMIN_TOKEN` is required at boot |
 | `MAX_PAYOUT_DEADLINE_EXTENSIONS`                                                    | Rules    | Upper bound on payout deadline extensions                 |
 
 Every value above is a placeholder in your own configuration; none is committed. See [Security Notes](#security-notes) for how secrets are handled.
