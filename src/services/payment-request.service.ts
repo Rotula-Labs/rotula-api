@@ -1,6 +1,7 @@
 import { prisma } from '../lib/prisma';
 import { StellarService } from './stellar.service';
 import { decrypt } from '../utils/encryption.util';
+import { observabilityService } from './observability.service';
 
 export const MAX_PENDING_REQUESTS_PER_USER = 5;
 const REQUEST_TTL_HOURS = 24;
@@ -12,7 +13,7 @@ const RETRY_DELAY_MS = 200;
 
 /** Error thrown when a payment request cannot be accepted in its current state. */
 export class PaymentRequestError extends Error {
-    constructor(public code: 'not_found' | 'not_pending' | 'expired' | 'not_responder' | 'insufficient_balance' | 'too_many_pending') {
+    constructor(public code: 'not_found' | 'not_pending' | 'expired' | 'not_responder' | 'insufficient_balance' | 'too_many_pending' | 'wallet_unreadable') {
         super(`Payment request error: ${code}`);
         this.name = 'PaymentRequestError';
     }
@@ -68,7 +69,16 @@ export class PaymentRequestService {
 
         const wallet = this.parseWallet(request.responder.stellarWallet);
         if (!wallet) {
-            throw new PaymentRequestError('not_pending');
+            const error = new PaymentRequestError('wallet_unreadable');
+            observabilityService.logError('Payment request wallet unreadable', error, {
+                requestId: request.id,
+                responderId: request.responderId,
+            });
+            await observabilityService.alertCriticalFailure('Payment request wallet unreadable', error, {
+                requestId: request.id,
+                responderId: request.responderId,
+            });
+            throw error;
         }
 
         // Confirm the respondent can actually cover the amount before locking funds.

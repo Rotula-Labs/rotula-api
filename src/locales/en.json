@@ -142,6 +142,7 @@
         "error_not_responder": "This request wasn't addressed to you.",
         "error_insufficient_balance": "You don't have enough XLM to cover this request.",
         "error_too_many_pending": "You already have 5 pending payment requests. Wait for some to complete or expire first.",
+        "error_wallet_unreadable": "We're having trouble loading your wallet for this request. This is on our side, and our team has been notified. There's nothing you need to do.",
         "error_self_request": "You can't send a payment request to yourself."
     }
 }

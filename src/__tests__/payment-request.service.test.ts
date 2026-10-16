@@ -1,4 +1,5 @@
 import { PaymentRequestService, PaymentRequestError } from '../services/payment-request.service';
+import { observabilityService } from '../services/observability.service';
 import { decrypt } from '../utils/encryption.util';
 
 jest.mock('../lib/prisma', () => ({
@@ -202,6 +203,36 @@ describe('PaymentRequestService', () => {
             (prisma.paymentRequest.findUnique as jest.Mock).mockResolvedValue(makeRequest({ status: 'DECLINED' }));
 
             await expect(service.acceptRequest('pr-1', '2222')).rejects.toMatchObject({ code: 'not_pending' });
+        });
+
+        it('reports an unreadable responder wallet as wallet_unreadable, logged and alerted, not as not_pending', async () => {
+            const logError = jest.spyOn(observabilityService, 'logError').mockImplementation(() => {});
+            const alert = jest.spyOn(observabilityService, 'alertCriticalFailure').mockResolvedValue(undefined);
+            (prisma.paymentRequest.findUnique as jest.Mock).mockResolvedValue(
+                makeRequest({
+                    responder: { id: 'u2', phoneNumber: '2222', language: 'en', stellarWallet: '{corrupt-not-json' },
+                })
+            );
+
+            await expect(service.acceptRequest('pr-1', '2222')).rejects.toMatchObject({ code: 'wallet_unreadable' });
+
+            // Fails before touching Stellar or mutating request state.
+            expect(mockStellar.checkBalance).not.toHaveBeenCalled();
+            expect(mockStellar.createClaimableBalanceWithHold).not.toHaveBeenCalled();
+            expect(prisma.paymentRequest.updateMany).not.toHaveBeenCalled();
+            // Logged and alerted with ids only — never the wallet blob.
+            expect(logError).toHaveBeenCalledWith(
+                expect.stringContaining('wallet unreadable'),
+                expect.objectContaining({ name: 'PaymentRequestError', code: 'wallet_unreadable' }),
+                { requestId: 'pr-1', responderId: 'u2' },
+            );
+            expect(alert).toHaveBeenCalledWith(
+                expect.stringContaining('wallet unreadable'),
+                expect.objectContaining({ name: 'PaymentRequestError', code: 'wallet_unreadable' }),
+                { requestId: 'pr-1', responderId: 'u2' },
+            );
+            logError.mockRestore();
+            alert.mockRestore();
         });
 
         it('rejects when the responder cannot cover the amount', async () => {
