@@ -8,6 +8,7 @@ const SUPPORTED_LANGUAGES = ['en', 'fr', 'yo', 'pcm', 'ha', 'ig'] as const;
 export type SupportedLanguage = typeof SUPPORTED_LANGUAGES[number];
 
 let initialised = false;
+let i18nInitPromise: Promise<void> | null = null;
 
 /**
  * Initializes the i18next instance and its backend for dynamic locale loading.
@@ -18,7 +19,16 @@ let initialised = false;
  */
 export async function initI18n(): Promise<void> {
     if (initialised) return;
+    if (i18nInitPromise) return i18nInitPromise;
 
+    i18nInitPromise = doInit().catch((err) => {
+        i18nInitPromise = null;
+        throw err;
+    });
+    return i18nInitPromise;
+}
+
+async function doInit(): Promise<void> {
     const localesDir = path.join(__dirname, '../locales');
 
     await i18next
@@ -90,6 +100,7 @@ export async function initI18n(): Promise<void> {
         });
     }
     initialised = true;
+    i18nInitPromise = null;
 }
 
 /**
