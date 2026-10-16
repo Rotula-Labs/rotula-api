@@ -91,7 +91,14 @@ const errorHandler: ErrorRequestHandler = (err, req, res, next) => {
 app.use(errorHandler);
 
 const server = app.listen(config.PORT, () => {
-    observabilityService.logInfo(`Server is listening on port ${config.PORT}`);
+    const address = server.address();
+    if (address && typeof address !== 'string') {
+        observabilityService.logInfo(`Server is listening on port ${config.PORT}`, {
+            address: address.address,
+            port: address.port,
+            family: address.family,
+        });
+    }
     startWorker();
     startSorobanDeploymentWorker();
     startKeyRotationWorker();

@@ -1,6 +1,12 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
+const portValue = process.env.PORT ?? '3000';
+const port = Number(portValue);
+if (!/^[0-9]+$/.test(portValue) || !Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error('PORT must be an integer between 1 and 65535');
+}
+
 const currentVersionParsed = parseInt(process.env.CURRENT_ENCRYPTION_KEY_VERSION || '1', 10);
 if (isNaN(currentVersionParsed)) {
     throw new Error('CURRENT_ENCRYPTION_KEY_VERSION must be a valid number');
@@ -14,7 +20,7 @@ if (!process.env.JWT_SECRET) {
 }
 
 export const config = {
-    PORT: process.env.PORT || 3000,
+    PORT: port,
     WHATSAPP_TOKEN: process.env.WHATSAPP_TOKEN || '',
     WHATSAPP_PHONE_NUMBER_ID: process.env.WHATSAPP_PHONE_NUMBER_ID || '',
     WHATSAPP_APP_SECRET: process.env.WHATSAPP_APP_SECRET || '',
