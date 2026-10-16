@@ -94,12 +94,12 @@ const { scheduleRequestExpiry, scheduleRequestCompletion } = require('../queue/p
 const mockWhatsAppService = { sendMessage: mockSendMessage };
 const mockGetTransactionHistory = jest.fn().mockResolvedValue({
     transactions: [
-        { date: '2026-06-25T00:00:00Z', type: 'payment sent', amount: '10', asset: 'XLM', counterparty: 'G_PUB2', hash: 'HASH123' }
+        { date: '2026-06-25T00:00:00Z', type: 'payment sent', amount: '10', asset: 'XLM', counterparty: 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', hash: 'HASH123' }
     ],
     nextCursor: 'cursor_123'
 });
 const mockStellarService = { getTransactionHistory: mockGetTransactionHistory, checkBalance: mockCheckBalance, sendPayment: mockSendPayment, generateWallet: jest.fn(), fundTestnetAccount: jest.fn() };
-const mockUserService = { getOrCreateUser: mockGetOrCreateUser, resolveUser: mockResolveUser, getUserByPublicKey: jest.fn() };
+const mockUserService = { getOrCreateUser: mockGetOrCreateUser, resolveUser: mockResolveUser, getUserByPublicKey: jest.fn(), getUsersByPublicKeys: jest.fn().mockResolvedValue(new Map()) };
 const mockGroupService = { createGroup: mockCreateGroup, joinGroup: mockJoinGroup, getGroupStatus: mockGetGroupStatus, addContribution: mockAddContribution };
 
 const mockInvokeContribute = jest.fn().mockResolvedValue({ hash: 'soroban_tx_123', status: 'SUCCESS' });
@@ -176,10 +176,34 @@ describe('MessageProcessor', () => {
             expect(mockSendMessage).toHaveBeenCalledWith('12345', expect.stringContaining('profile.card'));
         });
 
-        it('should handle HISTORY command and show transactions', async () => {
+        it('should handle HISTORY command and show a resolved username', async () => {
+            mockUserService.getUsersByPublicKeys.mockResolvedValueOnce(
+                new Map([['GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', {
+                    username: 'alice',
+                    phoneNumber: '12345',
+                }]]),
+            );
+
             await processor.processCommand('12345', 'HISTORY');
+
             expect(mockGetTransactionHistory).toHaveBeenCalledWith('G_PUB', undefined, 10);
-            expect(mockSendMessage).toHaveBeenCalledWith('12345', expect.stringContaining('history.header'));
+            expect(mockUserService.getUsersByPublicKeys).toHaveBeenCalledTimes(1);
+            expect(mockUserService.getUsersByPublicKeys).toHaveBeenCalledWith([
+                'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+            ]);
+            expect(mockSendMessage).toHaveBeenCalledWith(
+                '12345',
+                expect.stringContaining('"counterparty":"@alice"'),
+            );
+        });
+
+        it('should shorten the counterparty address when no user is found', async () => {
+            await processor.processCommand('12345', 'HISTORY');
+
+            expect(mockSendMessage).toHaveBeenCalledWith(
+                '12345',
+                expect.stringContaining('"counterparty":"GAAAA...AAAA"'),
+            );
         });
 
         it('should handle HISTORY MORE command', async () => {

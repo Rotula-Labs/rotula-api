@@ -239,12 +239,22 @@ export class MessageProcessor {
             let message = t('history.header', lang);
             let index = 1;
 
+            // Resolve all Stellar counterparties in one batch.
+            const counterpartyKeys = history.transactions
+                .map((tx) => tx.counterparty)
+                .filter(
+                    (key): key is string =>
+                        !!key && key.startsWith('G') && key.length === 56,
+                );
+            const counterpartyUsers =
+                await this.userService.getUsersByPublicKeys(counterpartyKeys);
+
             for (const tx of history.transactions) {
                 let displayCounterparty = tx.counterparty;
                 
                 // Attempt to resolve Kolo username if it's a stellar public key
                 if (tx.counterparty && tx.counterparty.startsWith('G') && tx.counterparty.length === 56) {
-                    const counterpartyUser = await this.userService.getUserByPublicKey(tx.counterparty);
+                    const counterpartyUser = counterpartyUsers.get(tx.counterparty);
                     if (counterpartyUser && counterpartyUser.username) {
                         displayCounterparty = '@' + counterpartyUser.username;
                     } else {
