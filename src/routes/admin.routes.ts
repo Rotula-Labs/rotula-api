@@ -1,3 +1,11 @@
+/**
+ * Admin routes — operator documentation lives in Docs/reconciliation.md.
+ *
+ * All routes below are gated on the `ADMIN_TOKEN` environment variable and
+ * require an `Authorization: Bearer <ADMIN_TOKEN>` header. See
+ * Docs/reconciliation.md for the reconciliation worker cadence, the meaning
+ * of each ReconciliationMismatch column, and the resolution runbook.
+ */
 import { Router, Request, Response, NextFunction } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { keyRotationQueue } from '../queue/key-rotation.queue';
@@ -16,6 +24,9 @@ const adminAuth = (req: Request, res: Response, next: NextFunction) => {
     next();
 };
 
+// POST /admin/key-rotation/start
+// Body: none. Response: { message: string, jobId: string } on success,
+// 400 if a rotation job is already active or waiting, 401 if unauthorized.
 router.use(adminAuth);
 router.post('/key-rotation/start', async (req, res) => {
     try {
@@ -33,6 +44,9 @@ router.post('/key-rotation/start', async (req, res) => {
     }
 });
 
+// GET /admin/key-rotation/status
+// Body: none. Response: { status: 'running' | 'idle', metrics: { active,
+// waiting, completed, failed } }. 401 if unauthorized.
 router.get('/key-rotation/status', async (req, res) => {
     try {
         const activeCount = await keyRotationQueue.getActiveCount();
@@ -58,6 +72,10 @@ router.get('/key-rotation/status', async (req, res) => {
 
 /**
  * GET /admin/reconciliation/status
+ *
+ * Auth: Bearer ADMIN_TOKEN. Body: none.
+ * Response: { totalUnresolved: number, groups: [{ groupId, mismatchCount,
+ * mismatches: ReconciliationMismatch[] }] }.
  *
  * Returns all unresolved ReconciliationMismatch records grouped by groupId,
  * ordered by most recent detection first.
@@ -91,6 +109,14 @@ router.get('/reconciliation/status', async (req, res) => {
 
 /**
  * PATCH /admin/reconciliation/:id/resolve
+ *
+ * Auth: Bearer ADMIN_TOKEN.
+ * Body: { resolvedBy: string } — required; the admin's userId or identifier.
+ * Responses:
+ *   200 { message, mismatch } on success
+ *   400 { error } when resolvedBy is missing
+ *   404 { error } when the mismatch id does not exist
+ *   409 { error } when the mismatch is already resolved (resolvedAt set)
  *
  * Marks a single mismatch as resolved after admin investigation.
  * Body: { resolvedBy: string } — the admin's userId or identifier.
