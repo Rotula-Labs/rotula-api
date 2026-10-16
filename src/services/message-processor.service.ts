@@ -13,6 +13,7 @@ import { t, isSupportedLanguage, loadLocale } from './locale.service';
 import { redisClient } from '../lib/redis';
 import { registerSecret, unregisterSecret, zeroAllInFlightSecrets } from '../utils/secret-registry';
 import { logSecretAccess } from '../utils/audit-logger';
+import { getCronPattern } from '../queue/contribution-scheduler.queue';
 
 export class MessageProcessor {
     private whatsappService: WhatsAppService;
@@ -502,6 +503,15 @@ export class MessageProcessor {
             return await this.whatsappService.sendMessage(from, t(amountError, lang));
         }
         const name = args.join(' ');
+
+        try {
+            getCronPattern(frequency);
+        } catch {
+            return await this.whatsappService.sendMessage(
+                from,
+                t('create_group.invalid_frequency', lang, { frequency }),
+            );
+        }
 
         try {
             const group = await this.groupService.createGroup(user.id, name, amountStr, frequency);

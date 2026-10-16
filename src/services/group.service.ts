@@ -1,6 +1,7 @@
 import { PrismaClient, Prisma } from '@prisma/client';
 import { scheduleGroupCycle, removeGroupCycle } from '../queue/contribution-scheduler.queue';
 import { enqueueContractDeployment } from '../queue/soroban-deployment.queue';
+import { getCronPattern } from '../queue/contribution-scheduler.queue';
 
 const prisma = new PrismaClient();
 
@@ -29,6 +30,13 @@ export class GroupService {
 
     public async createGroup(userId: string, name: string, amount: string | Prisma.Decimal, frequency: string) {
         GroupService.validateAmount(amount);
+        try {
+            getCronPattern(frequency);
+        } catch {
+            throw new Error(
+                `Unsupported frequency: ${frequency}. Valid values are WEEKLY, BIWEEKLY, MONTHLY.`
+            );
+        }
         const group = await prisma.savingsGroup.create({
             data: {
                 name,
