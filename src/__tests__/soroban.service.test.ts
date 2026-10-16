@@ -265,6 +265,105 @@ describe('SorobanService.removeMember()', () => {
     });
 });
 
+// ── deployGroupContract ───────────────────────────────────────────────────────
+
+describe('deployGroupContract()', () => {
+    let service: SorobanService;
+    let mockServer: any;
+    let deployerKeypair: StellarSdk.Keypair;
+    let callOrder: string[];
+    const wasmHash = 'wasm_hash_abc';
+    const contractId = 'CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM';
+
+    beforeEach(() => {
+        deployerKeypair = StellarSdk.Keypair.random();
+        process.env.DEPLOYER_SECRET_KEY = deployerKeypair.secret();
+        callOrder = [];
+        service = new SorobanService('https://soroban-testnet.stellar.org');
+        mockServer = {
+            simulateTransaction: jest.fn().mockResolvedValue(makeSimSuccess()),
+            sendTransaction: jest.fn().mockResolvedValue({ status: 'SUCCESS', hash: 'deploy_hash' }),
+            getTransaction: jest.fn(),
+            getAccount: jest.fn().mockResolvedValue(new StellarSdk.Account(deployerKeypair.publicKey(), '100')),
+        };
+        service.server = mockServer;
+    });
+
+    afterEach(() => {
+        delete process.env.DEPLOYER_SECRET_KEY;
+        jest.restoreAllMocks();
+    });
+
+    it('throws before any RPC call and alerts when DEPLOYER_SECRET_KEY is missing', async () => {
+        delete process.env.DEPLOYER_SECRET_KEY;
+        const { observabilityService } = require('../services/observability.service');
+
+        const loadSpy = jest.spyOn(service as any, 'loadContractWasm');
+        const uploadSpy = jest.spyOn(service as any, 'uploadWasm');
+        const createSpy = jest.spyOn(service as any, 'createCustomContract');
+        const initSpy = jest.spyOn(service as any, 'initializeContract');
+
+        await expect(service.deployGroupContract('Test Group', deployerKeypair.publicKey())).rejects.toThrow();
+
+        expect(loadSpy).not.toHaveBeenCalled();
+        expect(uploadSpy).not.toHaveBeenCalled();
+        expect(createSpy).not.toHaveBeenCalled();
+        expect(initSpy).not.toHaveBeenCalled();
+        expect(mockServer.simulateTransaction).not.toHaveBeenCalled();
+        expect(mockServer.sendTransaction).not.toHaveBeenCalled();
+        expect(observabilityService.alertCriticalFailure).toHaveBeenCalled();
+    });
+
+    it('calls the four steps in order and returns the contract id and a numeric latency', async () => {
+        jest.spyOn(service as any, 'loadContractWasm').mockImplementation(async () => {
+            callOrder.push('loadContractWasm');
+            return Buffer.from('wasm');
+        });
+        jest.spyOn(service as any, 'uploadWasm').mockImplementation(async () => {
+            callOrder.push('uploadWasm');
+            return wasmHash;
+        });
+        jest.spyOn(service as any, 'createCustomContract').mockImplementation(async () => {
+            callOrder.push('createCustomContract');
+            return contractId;
+        });
+        jest.spyOn(service as any, 'initializeContract').mockImplementation(async () => {
+            callOrder.push('initializeContract');
+            return { hash: 'init_hash', status: 'SUCCESS' };
+        });
+
+        const result = await service.deployGroupContract('Test Group', deployerKeypair.publicKey());
+
+        expect(callOrder).toEqual([
+            'loadContractWasm',
+            'uploadWasm',
+            'createCustomContract',
+            'initializeContract',
+        ]);
+        expect(result.contractId).toBe(contractId);
+        expect(typeof result.latencyMs).toBe('number');
+        expect(Number.isNaN(result.latencyMs)).toBe(false);
+    });
+
+    it('alerts, re-throws and still zeroes the seed buffer when initializeContract fails', async () => {
+        const { observabilityService } = require('../services/observability.service');
+        const seed = Buffer.from(deployerKeypair.secret(), 'utf8');
+        const fillSpy = jest.spyOn(seed, 'fill');
+
+        jest.spyOn(service as any, 'loadContractWasm').mockResolvedValue(Buffer.from('wasm'));
+        jest.spyOn(service as any, 'uploadWasm').mockResolvedValue(wasmHash);
+        jest.spyOn(service as any, 'createCustomContract').mockResolvedValue(contractId);
+        jest.spyOn(service as any, 'initializeContract').mockRejectedValue(new Error('init failed'));
+
+        await expect(
+            service.deployGroupContract('Test Group', deployerKeypair.publicKey()),
+        ).rejects.toThrow('init failed');
+
+        expect(observabilityService.alertCriticalFailure).toHaveBeenCalled();
+        expect(fillSpy).toHaveBeenCalledWith(0);
+    });
+});
+
 // ── queryContribution ─────────────────────────────────────────────────────────
 
 describe('SorobanService.queryContribution()', () => {
