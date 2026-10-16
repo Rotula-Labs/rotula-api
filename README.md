@@ -17,6 +17,7 @@ The goal is to make a group's agreement understandable and its settlement verifi
 
 ## Table of Contents
 
+- [Documentation](#documentation)
 - [Why Stellar is part of Rotula](#why-stellar-is-part-of-rotula)
 - [How the savings model maps to Stellar](#how-the-savings-model-maps-to-stellar)
 - [Repository family](#repository-family)
@@ -29,6 +30,10 @@ The goal is to make a group's agreement understandable and its settlement verifi
 - [Security Notes](#security-notes)
 - [Tests](#tests)
 - [Contributing](#contributing)
+
+## Documentation
+
+See the [documentation index](Docs/README.md) for wallet security notes, webhook reliability guidance, and placeholders for the authentication and reconciliation documents.
 
 ## Why Stellar is part of Rotula
 
