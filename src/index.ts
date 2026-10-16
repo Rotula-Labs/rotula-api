@@ -1,9 +1,10 @@
 import express, { type ErrorRequestHandler } from 'express';
+import cors from 'cors';
 import { spawnSync } from 'child_process';
 import { StrKey } from '@stellar/stellar-sdk';
 import botRoutes from './routes/bot.routes';
-import adminRoutes from './routes/admin.routes';
-import authRoutes from './routes/auth.routes';
+const adminRoutes = require('./routes/admin.routes');
+const authRoutes = require('./routes/auth.routes');
 import { config } from './config/env';
 import { startWorker } from './workers/message.worker';
 import { startSorobanDeploymentWorker } from './workers/soroban-deployment.worker';
@@ -23,7 +24,7 @@ if (!config.WHATSAPP_APP_SECRET) {
 }
 
 if (config.USDC_ISSUER_PUBLIC_KEY && !StrKey.isValidEd25519PublicKey(config.USDC_ISSUER_PUBLIC_KEY)) {
-    throw new Error('USDC_ISSUER_PUBLIC_KEY is set but is not a valid Stellar public key');
+    throw new Error('USDK_ISSUER_PUBLIC_KEY is set but is not a valid Stellar public key');
 }
 
 // Check core dump configuration at startup
@@ -68,6 +69,32 @@ app.use(express.json({
     },
 }));
 
+// Explicit CORS policy. The allow-list comes from configuration and is
+// never reflected back to the caller. Credentials are not sent because the
+// auth flow is Bearer-token based, not cookie based.
+const corsAllowedOrigins: string[] = config.CORS_ALLOWED_ORIGINS;
+
+const corsMiddleware = cors<any>({
+    origin: (origin, callback) => {
+        if (!origin || corsAllowedOrigins.includes(origin)) {
+            callback(null, true);
+            return;
+        }
+        callback(null, false);
+    },
+    credentials: false,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    optionsSuccessStatus: 204,
+});
+
+app.use(corsMiddleware);
+
+// Answer preflight requests for known prefixes before they reach the routers.
+app.options('/api', corsMiddleware);
+app.options('/admin', corsMiddleware);
+app.options('/auth', corsMiddleware);
+
 app.use('/api', botRoutes);
 app.use('/admin', adminRoutes);
 app.use('/auth', authRoutes);
@@ -75,7 +102,6 @@ app.use('/auth', authRoutes);
 app.get('/', (req, res) => {
     res.send('Rotula Backend is running');
 });
-
 
 // Centralised error-handling middleware. Express 5 forwards rejected promises
 // from async route handlers here, so any error that slips past a controller's
@@ -99,7 +125,6 @@ const server = app.listen(config.PORT, () => {
     startContributionSchedulerWorker();
     startPaymentRequestWorker();
 });
-
 
 // Enforce a server-level timeout
 server.setTimeout(30000);

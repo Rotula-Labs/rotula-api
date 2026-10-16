@@ -2,11 +2,17 @@ jest.mock('express', () => {
     const app = {
         use: jest.fn(),
         get: jest.fn(),
+        options: jest.fn(),
         listen: jest.fn(() => ({ setTimeout: jest.fn() })),
     };
     const express = jest.fn(() => app);
     (express as any).json = jest.fn();
     return { __esModule: true, default: express, __app: app };
+});
+
+jest.mock('cors', () => {
+    const cors = jest.fn(() => jest.fn());
+    return { __esModule: true, default: cors };
 });
 
 jest.mock('child_process', () => ({
@@ -23,6 +29,7 @@ jest.mock('../config/env', () => ({
         ENCRYPTION_KEY: 'test-encryption-key',
         WHATSAPP_APP_SECRET: 'test-app-secret',
         USDC_ISSUER_PUBLIC_KEY: '',
+        CORS_ALLOWED_ORIGINS: ['https://app.rotula.local'],
     },
 }));
 
