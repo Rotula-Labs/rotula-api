@@ -59,36 +59,47 @@ process.on('uncaughtException', (err) => {
     });
 });
 
-const app = express();
+export function createApp(): express.Express {
+    const app = express();
 
-app.use(express.json({
-    limit: '1mb',
-    verify: (req: any, res, buf) => {
-        req.rawBody = buf;
-    },
-}));
+    app.use(express.json({
+        limit: '1mb',
+        verify: (req: any, res, buf) => {
+            req.rawBody = buf;
+        },
+    }));
 
-app.use('/api', botRoutes);
-app.use('/admin', adminRoutes);
-app.use('/auth', authRoutes);
+    app.use('/api', botRoutes);
+    app.use('/admin', adminRoutes);
+    app.use('/auth', authRoutes);
 
-app.get('/', (req, res) => {
-    res.send('Rotula Backend is running');
-});
+    app.get('/', (req, res) => {
+        res.send('Rotula Backend is running');
+    });
 
+    // Centralised error-handling middleware. Express 5 forwards rejected promises
+    // from async route handlers here, so any error that slips past a controller's
+    // own try/catch still produces a clean 500 instead of a default error page or
+    // a hung request.
+    const errorHandler: ErrorRequestHandler = (err, req, res, next) => {
+        observabilityService.alertCriticalFailure('Unhandled request error', err, { path: req.path, method: req.method });
+        if (res.headersSent) {
+            return next(err);
+        }
+        res.sendStatus(500);
+    };
+    app.use(errorHandler);
 
-// Centralised error-handling middleware. Express 5 forwards rejected promises
-// from async route handlers here, so any error that slips past a controller's
-// own try/catch still produces a clean 500 instead of a default error page or
-// a hung request.
-const errorHandler: ErrorRequestHandler = (err, req, res, next) => {
-    observabilityService.alertCriticalFailure('Unhandled request error', err, { path: req.path, method: req.method });
-    if (res.headersSent) {
-        return next(err);
-    }
-    res.sendStatus(500);
-};
-app.use(errorHandler);
+    // JSON 404 for unknown paths. Must be mounted after all routers and the
+    // error handler so that actual routes and error responses take precedence.
+    app.use((req, res) => {
+        res.status(404).json({ error: 'Not found' });
+    });
+
+    return app;
+}
+
+const app = createApp();
 
 const server = app.listen(config.PORT, () => {
     observabilityService.logInfo(`Server is listening on port ${config.PORT}`);
@@ -99,7 +110,6 @@ const server = app.listen(config.PORT, () => {
     startContributionSchedulerWorker();
     startPaymentRequestWorker();
 });
-
 
 // Enforce a server-level timeout
 server.setTimeout(30000);
