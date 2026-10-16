@@ -1,4 +1,5 @@
 import * as StellarSdk from '@stellar/stellar-sdk';
+import { GroupMemberRole, GroupMemberStatus } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { PayoutService } from './payout.service';
 import { SorobanService } from './soroban.service';
@@ -65,8 +66,8 @@ export class GroupExitService {
 
         const group = await this.loadGroup(groupId);
 
-        const requester = group.members.find((m: any) => m.userId === requesterUserId && m.status !== 'LEFT');
-        if (!requester || requester.role !== 'CREATOR') {
+        const requester = group.members.find((m: any) => m.userId === requesterUserId && m.status !== GroupMemberStatus.LEFT);
+        if (!requester || requester.role !== GroupMemberRole.CREATOR) {
             throw new GroupExitError('not_creator');
         }
 
@@ -74,7 +75,7 @@ export class GroupExitService {
         if (!member) {
             throw new GroupExitError('target_not_found');
         }
-        if (member.status === 'LEFT') {
+        if (member.status === GroupMemberStatus.LEFT) {
             throw new GroupExitError('already_left');
         }
 
@@ -95,7 +96,7 @@ export class GroupExitService {
         const group = await this.loadGroup(groupId);
         const member = group.members.find((m: any) => m.userId === userId);
         if (!member) throw new GroupExitError('not_a_member');
-        if (member.status === 'LEFT') throw new GroupExitError('already_left');
+        if (member.status === GroupMemberStatus.LEFT) throw new GroupExitError('already_left');
         return { group, member };
     }
 
@@ -158,7 +159,7 @@ export class GroupExitService {
 
         await prisma.groupMember.update({
             where: { id: member.id },
-            data: { status: 'LEFT', leftAt: new Date() },
+            data: { status: GroupMemberStatus.LEFT, leftAt: new Date() },
         });
 
         await prisma.memberExitLog.create({
@@ -178,15 +179,15 @@ export class GroupExitService {
             .removeMemberFromOrder(group.id, member.userId)
             .catch((e) => console.error(`Failed to adjust payout order for group ${group.id}`, e));
 
-        const remainingActive = group.members.filter((m: any) => m.userId !== member.userId && m.status !== 'LEFT');
+        const remainingActive = group.members.filter((m: any) => m.userId !== member.userId && m.status !== GroupMemberStatus.LEFT);
 
         let creatorTransferredTo: string | null = null;
-        if (member.role === 'CREATOR') {
+        if (member.role === GroupMemberRole.CREATOR) {
             const nextCreator = [...remainingActive].sort(
                 (a: any, b: any) => new Date(a.joinedAt).getTime() - new Date(b.joinedAt).getTime(),
             )[0];
             if (nextCreator) {
-                await prisma.groupMember.update({ where: { id: nextCreator.id }, data: { role: 'CREATOR' } });
+                await prisma.groupMember.update({ where: { id: nextCreator.id }, data: { role: GroupMemberRole.CREATOR } });
                 creatorTransferredTo = nextCreator.userId;
             }
         }
@@ -229,7 +230,7 @@ export class GroupExitService {
 
     private async notifyGroup(groupId: string, excludeUserId: string, message: string): Promise<void> {
         const members = await prisma.groupMember.findMany({
-            where: { groupId, status: { not: 'LEFT' }, userId: { not: excludeUserId } },
+            where: { groupId, status: { not: GroupMemberStatus.LEFT }, userId: { not: excludeUserId } },
             include: { user: true },
         });
         for (const m of members) {

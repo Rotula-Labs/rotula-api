@@ -1,6 +1,7 @@
 import { startContributionSchedulerWorker, closeContributionWorker } from '../workers/contribution-scheduler.worker';
 import { redisClient } from '../lib/redis';
 import { PrismaClient } from '@prisma/client';
+import { GroupMemberRole, GroupMemberStatus, ContributionFrequency } from '@prisma/client';
 import { WhatsAppService } from '../services/whatsapp.service';
 import { PayoutService } from '../services/payout.service';
 import { Job } from 'bullmq';
@@ -74,8 +75,8 @@ describe('Contribution Scheduler Worker', () => {
                 currentCycleStart: new Date(now.getTime() - 100000),
                 currentCycleEnd: new Date(now.getTime() + 100000),
                 members: [
-                    { userId: 'user-1', user: { phoneNumber: '+1234567890' } }, // Non-contributor
-                    { userId: 'user-2', user: { phoneNumber: '+0987654321' } }  // Contributor
+                    { userId: 'user-1', role: GroupMemberRole.MEMBER, status: GroupMemberStatus.ACTIVE, user: { phoneNumber: '+1234567890' } }, // Non-contributor
+                    { userId: 'user-2', role: GroupMemberRole.MEMBER, status: GroupMemberStatus.ACTIVE, user: { phoneNumber: '+0987654321' } }  // Contributor
                 ]
             };
 

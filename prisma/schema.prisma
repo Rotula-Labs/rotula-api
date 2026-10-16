@@ -35,11 +35,17 @@ enum DeploymentStatus {
   FAILED
 }
 
+enum ContributionFrequency {
+  WEEKLY
+  BIWEEKLY
+  MONTHLY
+}
+
 model SavingsGroup {
   id                     String           @id @default(uuid())
   name                   String
   contributionAmount     Decimal
-  contributionFrequency  String // e.g., "WEEKLY", "MONTHLY"
+  contributionFrequency  ContributionFrequency
   stellarContractId      String? // Soroban contract ID once deployed
   deploymentStatus       DeploymentStatus @default(PENDING)
   deploymentError        String?
@@ -64,16 +70,24 @@ model SavingsGroup {
   MemberExitLog          MemberExitLog[]
 }
 
+enum GroupMemberRole {
+  CREATOR
+  MEMBER
+}
+
+enum GroupMemberStatus {
+  ACTIVE
+  LEFT
+}
+
 model GroupMember {
   id       String       @id @default(uuid())
   user     User         @relation(fields: [userId], references: [id])
   userId   String
   group    SavingsGroup @relation(fields: [groupId], references: [id])
   groupId  String
-  role     String       @default("MEMBER") // e.g., "CREATOR", "MEMBER"
-  // ACTIVE or LEFT. Soft-delete marker for voluntary exit / kick — the row is
-  // kept for audit/history rather than removed.
-  status   String       @default("ACTIVE")
+  role     GroupMemberRole   @default(MEMBER)
+  status   GroupMemberStatus @default(ACTIVE)
   joinedAt DateTime     @default(now())
   leftAt   DateTime?
 
