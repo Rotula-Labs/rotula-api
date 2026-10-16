@@ -26,7 +26,14 @@ if (config.USDC_ISSUER_PUBLIC_KEY && !StrKey.isValidEd25519PublicKey(config.USDC
     throw new Error('USDC_ISSUER_PUBLIC_KEY is set but is not a valid Stellar public key');
 }
 
-// Check core dump configuration at startup
+// Warn at startup if core dumps appear to be enabled. This process cannot
+// change the core dump limit for its parent shell or for the container it
+// runs in, so this is only a best-effort check that logs a warning. The
+// operator must disable core dumps outside the process (e.g. `ulimit -c 0` in the
+// parent shell, or the equivalent platform-specific setting such as a container
+// security profile or systemd unit limit). The warning message text is
+// "Core dumps may be enabled". It fires when `ulimit -c` is neither `0` nor
+// `unlimited`.
 function checkCoreDumpsDisabled(): void {
     try {
         const result = spawnSync('sh', ['-c', 'ulimit -c'], { encoding: 'utf8' });
