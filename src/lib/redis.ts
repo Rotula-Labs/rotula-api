@@ -1,8 +1,15 @@
 import Redis from 'ioredis';
+
 import { config } from '../config/env';
 
-// Initialize Redis client using the existing configuration
-const options: any = { enableOfflineQueue: false, maxRetriesPerRequest: null };
+// Initialize Redis client using the existing configuration.
+// The keyPrefix option namespaces every key written through this client,
+// so staging and production deployments sharing one Redis do not collide.
+const options: any = {
+    enableOfflineQueue: false,
+    maxRetriesPerRequest: null,
+    keyPrefix: config.REDIS_KEY_PREFIX,
+};
 if (process.env.NODE_ENV === 'test') {
     options.lazyConnect = true;
 }
