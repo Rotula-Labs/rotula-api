@@ -1,0 +1,34 @@
+name: Dependency Report
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  report:
+    name: Report outdated dependencies
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+      - name: Check for outdated dependencies
+        run: |
+          {
+            echo '## Outdated dependencies'
+            echo ''
+            echo '```'
+            npx --yes npm-check-updates
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
