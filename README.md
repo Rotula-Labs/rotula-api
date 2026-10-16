@@ -111,9 +111,12 @@ npx ts-node src/index.ts
 Available scripts:
 
 ```bash
-npm start        # run the service with ts-node
-npm run dev      # run with nodemon (requires nodemon, which is not a declared dependency)
-npm test         # run the Jest suite
+npm start          # run the service with ts-node
+npm run dev        # run with nodemon (requires nodemon, which is not a declared dependency)
+npm test           # run the Jest suite
+npm run test:coverage  # run the Jest suite with coverage
+npm run typecheck  # type-check the project with tsc --noEmit
+npm run format:check   # check formatting with Prettier
 ```
 
 `npm run dev` shells out to `nodemon`, which is not listed in `package.json`; either install it (`npm install --save-dev nodemon`) or run the service directly with the declared `npx ts-node src/index.ts`.
