@@ -18,6 +18,7 @@ const mockRedisSet = redisClient.set as jest.Mock;
 
 jest.mock('@prisma/client', () => {
     const mPrismaClient = {
+        $use: jest.fn(),
         user: {
             findUnique: jest.fn(),
             findFirst: jest.fn(),
@@ -49,7 +50,7 @@ jest.mock('../services/whatsapp.service', () => {
 });
 
 jest.mock('../utils/encryption.util', () => ({
-    decrypt: jest.fn().mockReturnValue('S_MOCK_SECRET'),
+    decrypt: jest.fn().mockImplementation(() => Buffer.from('S_MOCK_SECRET')),
 }));
 
 jest.mock('../services/locale.service', () => ({
@@ -81,11 +82,11 @@ describe('UserService', () => {
     describe('getOrCreateUser', () => {
         it('should return existing user if found', async () => {
             const mockUser = { id: '1', phoneNumber: '1234567890' };
-            prismaClientMock.user.findUnique.mockResolvedValueOnce(mockUser);
+            prismaClientMock.user.findFirst.mockResolvedValueOnce(mockUser);
 
             const result = await userService.getOrCreateUser('1234567890');
 
-            expect(prismaClientMock.user.findUnique).toHaveBeenCalledWith({
+            expect(prismaClientMock.user.findFirst).toHaveBeenCalledWith({
                 where: { phoneNumber: '1234567890' }
             });
             expect(prismaClientMock.user.create).not.toHaveBeenCalled();
@@ -93,7 +94,7 @@ describe('UserService', () => {
         });
 
         it('should create new user with generated stellar wallet if not found', async () => {
-            prismaClientMock.user.findUnique.mockResolvedValueOnce(null);
+            prismaClientMock.user.findFirst.mockResolvedValueOnce(null);
             const expectedWallet = JSON.stringify({
                 publicKey: 'G_MOCK_PUBLIC_KEY',
                 encryptedSecret: 'ENC_SECRET',
@@ -118,7 +119,7 @@ describe('UserService', () => {
         });
 
         it('should handle friendbot funding failure gracefully', async () => {
-            prismaClientMock.user.findUnique.mockResolvedValueOnce(null);
+            prismaClientMock.user.findFirst.mockResolvedValueOnce(null);
             stellarServiceMock.fundTestnetAccount.mockRejectedValueOnce(new Error('Network error'));
             const expectedWallet = JSON.stringify({
                 publicKey: 'G_MOCK_PUBLIC_KEY',
@@ -138,7 +139,7 @@ describe('UserService', () => {
 
         it('should skip trustline creation when USDC_ISSUER_PUBLIC_KEY is not configured', async () => {
             config.USDC_ISSUER_PUBLIC_KEY = '';
-            prismaClientMock.user.findUnique.mockResolvedValueOnce(null);
+            prismaClientMock.user.findFirst.mockResolvedValueOnce(null);
             prismaClientMock.user.create.mockResolvedValueOnce({ id: '4', phoneNumber: '2222222222' });
 
             await userService.getOrCreateUser('2222222222');
@@ -148,19 +149,19 @@ describe('UserService', () => {
 
         it('should establish a USDC trustline when USDC_ISSUER_PUBLIC_KEY is configured', async () => {
             config.USDC_ISSUER_PUBLIC_KEY = 'G_USDC_ISSUER';
-            prismaClientMock.user.findUnique.mockResolvedValueOnce(null);
+            prismaClientMock.user.findFirst.mockResolvedValueOnce(null);
             prismaClientMock.user.create.mockResolvedValueOnce({ id: '5', phoneNumber: '3333333333' });
 
             await userService.getOrCreateUser('3333333333');
 
-            expect(stellarServiceMock.createTrustline).toHaveBeenCalledWith('S_MOCK_SECRET', 'USDC', 'G_USDC_ISSUER');
+            expect(stellarServiceMock.createTrustline).toHaveBeenCalledWith(expect.any(Buffer), 'USDC', 'G_USDC_ISSUER');
             expect(whatsappServiceMock.sendMessage).not.toHaveBeenCalled();
         });
 
         it('should notify the user via WhatsApp when the trustline reserve is insufficient', async () => {
             config.USDC_ISSUER_PUBLIC_KEY = 'G_USDC_ISSUER';
             stellarServiceMock.createTrustline.mockRejectedValueOnce(new InsufficientReserveError());
-            prismaClientMock.user.findUnique.mockResolvedValueOnce(null);
+            prismaClientMock.user.findFirst.mockResolvedValueOnce(null);
             prismaClientMock.user.create.mockResolvedValueOnce({ id: '6', phoneNumber: '4444444444' });
 
             await userService.getOrCreateUser('4444444444');
@@ -174,7 +175,7 @@ describe('UserService', () => {
         it('should log and continue when trustline creation fails for an unrelated reason', async () => {
             config.USDC_ISSUER_PUBLIC_KEY = 'G_USDC_ISSUER';
             stellarServiceMock.createTrustline.mockRejectedValueOnce(new Error('Horizon is down'));
-            prismaClientMock.user.findUnique.mockResolvedValueOnce(null);
+            prismaClientMock.user.findFirst.mockResolvedValueOnce(null);
             const createdUser = { id: '7', phoneNumber: '5555555555' };
             prismaClientMock.user.create.mockResolvedValueOnce(createdUser);
             const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
@@ -189,7 +190,7 @@ describe('UserService', () => {
         });
 
         it('should use supported locale if provided', async () => {
-            prismaClientMock.user.findUnique.mockResolvedValueOnce(null);
+            prismaClientMock.user.findFirst.mockResolvedValueOnce(null);
             prismaClientMock.user.create.mockResolvedValueOnce({ id: '5', phoneNumber: '3333333333', language: 'fr' });
 
             await userService.getOrCreateUser('3333333333', 'fr');
@@ -204,7 +205,7 @@ describe('UserService', () => {
         });
 
         it('should fallback to en if unsupported locale is provided', async () => {
-            prismaClientMock.user.findUnique.mockResolvedValueOnce(null);
+            prismaClientMock.user.findFirst.mockResolvedValueOnce(null);
             prismaClientMock.user.create.mockResolvedValueOnce({ id: '6', phoneNumber: '4444444444', language: 'en' });
 
             await userService.getOrCreateUser('4444444444', 'xyz');
@@ -221,12 +222,13 @@ describe('UserService', () => {
 
     describe('updateUserLanguage', () => {
         it('should update user language', async () => {
+            prismaClientMock.user.findFirst.mockResolvedValueOnce({ id: '1', phoneNumber: '1234567890' });
             prismaClientMock.user.update.mockResolvedValueOnce({ id: '1', phoneNumber: '1234567890', language: 'fr' });
 
             await userService.updateUserLanguage('1234567890', 'fr');
 
             expect(prismaClientMock.user.update).toHaveBeenCalledWith({
-                where: { phoneNumber: '1234567890' },
+                where: { id: '1' },
                 data: { language: 'fr' }
             });
         });
@@ -242,9 +244,9 @@ describe('UserService', () => {
         });
 
         it('should resolve by phone number if target does not start with @', async () => {
-            prismaClientMock.user.findUnique.mockResolvedValueOnce({ phoneNumber: '123' });
+            prismaClientMock.user.findFirst.mockResolvedValueOnce({ phoneNumber: '123' });
             await userService.resolveUser('123');
-            expect(prismaClientMock.user.findUnique).toHaveBeenCalledWith({
+            expect(prismaClientMock.user.findFirst).toHaveBeenCalledWith({
                 where: { phoneNumber: '123' }
             });
         });
