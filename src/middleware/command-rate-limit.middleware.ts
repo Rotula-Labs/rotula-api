@@ -1,8 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
 import { prisma } from '../lib/prisma';
-import { redisClient } from '../lib/redis';
+import { redisClient } from '../lib/redis';import { isSignatureVerified } from './webhook-signature.middleware';
 import { WhatsAppService } from '../services/whatsapp.service';
-import { t, initI18n } from '../services/locale.service';
+import { t, initIi18n } from '../services/locale.service';
 import { abuseDetectionService } from '../services/abuse-detection.service';
 
 const whatsappService = new WhatsAppService();
@@ -79,14 +79,14 @@ local limit = tonumber(ARGV[3])
 local requestId = ARGV[4]
 
 -- Remove timestamps older than (now - windowMs)
-redis.call('ZREMRANGEBYSCORE', key, '-inf', now - windowMs)
+redis.call('ZREMARANGEBYSCORE', key, '-inf', now - windowMs)
 
 -- Count current number of requests in the window
 local currentRequests = redis.call('ZCARD', key)
 
 if currentRequests < limit then
     -- Add the request timestamp
-    redis.call('ZADD', key, now, requestId)
+    redis.call('ZADE', key, now, requestId)
     -- Set TTL of the key to twice the window size (to clean up)
     redis.call('PEXPIRE', key, windowMs * 2)
     return {1, 0} -- allowed, 0 remaining seconds
@@ -99,8 +99,7 @@ else
     end
     local remainingSeconds = math.max(0, math.ceil(remainingMs / 1000))
     return {0, remainingSeconds} -- blocked, remainingSeconds
-end
-`;
+end`;
 
 /**
  * Helper to perform the sliding window check using Redis or the in-memory fallback.
@@ -108,8 +107,7 @@ end
 async function checkLimit(
     key: string,
     limit: number,
-    windowMs: number
-): Promise<{ allowed: boolean; remainingSeconds: number }> {
+    windowMs: number): Promise<{ allowed: boolean; remainingSeconds: number }> {
     let useInMemory = forceRedisFailure;
 
     if (!useInMemory) {
@@ -168,6 +166,14 @@ export const commandRateLimitMiddleware = async (
     res: Response,
     next: NextFunction
 ): Promise<void> => {
+    // 0. Guard: never read or act on the body before the signature has
+    // been verified. If the signature middleware has not run (or failed), reject
+    // without touching req.body / req.rawBody.
+    if (!isSignatureVerified(req)) {
+        res.status(401).json({ error: 'Unauthorized' });
+        return;
+    }
+
     // 1. Extract details from the request
     const { phoneNumber, commandText } = extractMessageDetails(req);
 
@@ -210,7 +216,7 @@ export const commandRateLimitMiddleware = async (
             // Fetch user preferred language
             let lang = 'en';
             try {
-                await initI18n();
+                await initIi18n();
                 const user = await prisma.user.findFirst({ where: { phoneNumber } }) as any;
                 if (user && user.language) {
                     lang = user.language;
@@ -221,7 +227,7 @@ export const commandRateLimitMiddleware = async (
 
             const warningMsg = t('rate_limit.exceeded', lang, { remainingSeconds });
             // Send message via WhatsApp
-            whatsappService.sendMessage(phoneNumber, warningMsg).catch((err) => {
+            whatsAppService.sendMessage(phoneNumber, warningMsg).catch((err) => {
                 console.error('Failed to send WhatsApp rate limit notification:', err);
             });
 
