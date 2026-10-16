@@ -119,7 +119,7 @@ describe('locale.service', () => {
             const { initI18n, t, loadLocale } = await import('../services/locale.service');
             await initI18n();
             await loadLocale('yo');
-            const result = t('balance.success', 'yo', { balances: 'XLM: 5' });
+            const result = t('balance.success', 'to', { balances: 'XLM: 5' });
             expect(result).toContain('XLM');
         });
 
@@ -198,6 +198,45 @@ describe('locale.service', () => {
             // Native i18next pluralization test as evidence
             const result = i18next.t('item', { count: 2, defaultValue_other: '{{count}} items' });
             expect(result).toContain('2 items');
+        });
+    });
+
+    describe('strict mode startup checks', () => {
+
+        afterEach(() => {
+            FS_MOCK.realFs();
+            jest.restoreAllMocks();
+        });
+
+        it('should throw and name the missing key when a locale file is incomplete', async () => {
+            const { initI18n, loadLocale } = await import('../services/locale.service');
+            await initI18n();
+            const yoPath = require.resolve('../locales/yo.json');
+            const yoJson = JSON.parse(FS_MOCK.readFileSync(yoPath, 'utf-8'));
+            delete yoJson['balance.success'];
+            FS_MOCK.readFileSync.mockImplementation((p, enc) => {
+                if (String(p).endsWith('yo.json')) {
+                    return JSON.stringify(yoJson);
+                }
+                return FS_MOCK.readFileSync(p, enc);
+            });
+            await expect(loadLocale('yo')).rejects.toThrow(/balance\.success/);
+        });
+
+        it('should throw and name the missing locale file when it cannot be read', async () => {
+            const { initI18n, loadLocale } = await import('../services/locale.service');
+            await initI18n();
+            FS_MOCK.readFileSync.mockImplementation(() => {
+                throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+            });
+            await expect(loadLocale('fr')).rejects.toThrow(/fr/);
+        });
+
+        it('should start normally with a complete locale set', async () => {
+            const { initI18n, loadLocale } = await import('../services/locale.service');
+            await expect(initI18n()).resolves.toBeUndefined();
+            await expect(loadLocale('fr')).resolves.toBeUndefined();
+            await expect(loadLocale('yo')).resolves.toBeUndefined();
         });
     });
 });
