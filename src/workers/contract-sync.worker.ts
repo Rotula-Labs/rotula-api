@@ -148,15 +148,17 @@ export async function runReconciliation(sorobanService: SorobanService): Promise
             // 4. Mismatch detected — log for admin review, do NOT auto-fix
             summary.mismatchesFound++;
 
-            const onChainXlm = new Prisma.Decimal(Number(onChainStroops) / 10_000_000);
-            const dbXlm = dbTotalXlm;
+            // Store both amounts in stroops to match the documented unit in
+            // prisma/schema.prisma (ReconciliationMismatch.onChainAmount/dbAmount).
+            const onChainStroopsDecimal = new Prisma.Decimal(onChainStroops.toString());
+            const dbStroopsDecimal = new Prisma.Decimal(dbStroops.toString());
 
             await prisma.reconciliationMismatch.create({
                 data: {
                     groupId: group.id,
                     userId: member.id,
-                    onChainAmount: onChainXlm,
-                    dbAmount: dbXlm,
+                    onChainAmount: onChainStroopsDecimal,
+                    dbAmount: dbStroopsDecimal,
                 },
             });
 
@@ -166,9 +168,9 @@ export async function runReconciliation(sorobanService: SorobanService): Promise
                 {
                     groupId: group.id,
                     userId: member.id,
-                    onChainXlm: onChainXlm.toString(),
-                    dbXlm: dbXlm.toString(),
-                    deltaSproops: (onChainStroops - dbStroops).toString(),
+                    onChainStroops: onChainStroopsDecimal.toString(),
+                    dbStroops: dbStroopsDecimal.toString(),
+                    deltaStroops: (onChainStroops - dbStroops).toString(),
                 },
             );
         }

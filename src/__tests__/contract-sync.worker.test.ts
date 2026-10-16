@@ -9,6 +9,7 @@
  *  - Does NOT persist a record when amounts match
  *  - Handles queryContribution() errors gracefully
  *  - Applies a 1-stroop tolerance for floating-point rounding
+ *  - Records reconciliation amounts in stroops (the documented unit)
  */
 import { runReconciliation, ReconciliationSummary } from '../workers/contract-sync.worker';
 import { SorobanService } from '../services/soroban.service';
@@ -162,6 +163,22 @@ describe('runReconciliation()', () => {
         expect(getMocks().create).not.toHaveBeenCalled();
     });
 
+    it('stores reconciliation amounts in stroops (the documented unit)', async () => {
+        getMocks().findManyGroups.mockResolvedValue([makeGroup()]);
+        // on-chain: 10 XLM = 100_000_000 stroops, DB: 0 stroops
+        mockSorobanService.queryContribution.mockResolvedValue(100_000_000n);
+        getMocks().findManyContributions.mockResolvedValue([]);
+        getMocks().create.mockResolvedValue({ id: 'mm_stroops' });
+
+        const summary = await runReconciliation(mockSorobanService as any);
+
+        expect(summary.mismatchesFound).toBe(1);
+        expect(getMocks().create).toHaveBeenCalledTimes(1);
+        const createArg = getMocks().create.mock.calls[0][0];
+        expect(createArg.data.onChainAmount.toString()).toBe('100000000');
+        expect(createArg.data.dbAmount.toString()).toBe('0');
+    });
+
     it('detects and persists a mismatch when on-chain > DB (crash-recovery scenario)', async () => {
         getMocks().findManyGroups.mockResolvedValue([makeGroup()]);
         // on-chain: 10 XLM (confirmed), DB: 0 (write didn't happen)
@@ -181,6 +198,21 @@ describe('runReconciliation()', () => {
                 }),
             }),
         );
+    });
+
+    it('stores the raw DB stroop total for dbAmount', async () => {
+        getMocks().findManyGroups.mockResolvedValue([makeGroup()]);
+        // on-chain: 5 XLM = 50_000_000 stroops, DB: 10 XLM = 100_000_000 stroops
+        mockSorobanService.queryContribution.mockResolvedValue(50_000_000n);
+        getMocks().findManyContributions.mockResolvedValue([{ amount: 10 }]);
+        getMocks().create.mockResolvedValue({ id: 'mm_db_stroops' });
+
+        const summary = await runReconciliation(mockSorobanService as any);
+
+        expect(summary.mismatchesFound).toBe(1);
+        const createArg = getMocks().create.mock.calls[0][0];
+        expect(createArg.data.onChainAmount.toString()).toBe('50000000');
+        expect(createArg.data.dbAmount.toString()).toBe('100000000');
     });
 
     it('detects and persists a mismatch when DB > on-chain', async () => {
