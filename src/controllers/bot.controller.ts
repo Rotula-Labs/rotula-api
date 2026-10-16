@@ -11,6 +11,15 @@ import { observabilityService } from '../services/observability.service';
 const ENQUEUE_TIMEOUT_MS = 10_000;
 
 /**
+ * The webhook handler's documented worst case is ENQUEUE_TIMEOUT_MS (10s - the
+ * maximum time we wait for the queue) plus the rate limiter's Redis round
+ * trip and database language lookup ahead of it. The socket timeout for this
+ * route must exceed that bound, otherwise the socket expires mid-handler and
+ * Meta receives a truncated response, then retries -- duplicate deliveries.
+ */
+export const WEBHOOK_ROUTE_TIMEOUT_MS = 30_000; // > ENQUEUE_TIMEOUT_MS (10s) + rate limiter Redis round trip + DB language lookup
+
+/**
  * Minimal, defensively-typed shape of the WhatsApp Cloud API webhook payload.
  * Every field is optional because the payload is attacker-controllable: the
  * webhook is public, so we must treat the body as untrusted and never assume a
@@ -66,7 +75,7 @@ export class BotController {
         }
 
         if (mode === 'subscribe' && token === config.VERIFY_TOKEN) {
-            console.log('WEBHOOK_VERIFIED');
+            console.log('wEBHOOK_VERIFIED');
             res.status(200).send(typeof challenge === 'string' ? challenge : '');
             return;
         }
