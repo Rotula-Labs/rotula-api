@@ -18,6 +18,32 @@ describe('locale.service', () => {
             await initI18n();
             await expect(initI18n()).resolves.toBeUndefined();
         });
+
+        it('should perform exactly one initialisation for concurrent calls', async () => {
+            const i18next = (await import('i18next')).default;
+            const initSpy = jest.spyOn(i18next, 'init');
+            const { initI18n } = await import('../services/locale.service');
+            await Promise.all([initI18n(), initI18n(), initI18n()]);
+            expect(initSpy).toHaveBeenCalledTimes(1);
+            initSpy.mockRestore();
+        });
+
+        it('should return the same in-flight promise to concurrent callers', async () => {
+            const { initI18n } = await import('../services/locale.service');
+            const p1 = initI18n();
+            const p2 = initI18n();
+            expect(p1).toBe(p2);
+            await Promise.all([p1, p2]);
+        });
+
+        it('should allow retry after a failed initialisation', async () => {
+            const i18next = (await import('i18next')).default;
+            const initSpy = jest.spyOn(i18next, 'init').mockRejectedValueOnce(new Error('boom'));
+            const { initI18n } = await import('../services/locale.service');
+            await expect(initI18n()).rejects.toThrow('boom');
+            initSpy.mockRestore();
+            await expect(initI18n()).resolves.toBeUndefined();
+        });
     });
 
     describe('t — English (default)', () => {
