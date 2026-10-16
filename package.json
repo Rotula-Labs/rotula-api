@@ -6,7 +6,9 @@
   "scripts": {
     "start": "ts-node src/index.ts",
     "dev": "nodemon src/index.ts",
-    "test": "jest"
+    "test": "jest",
+    "verify-wasm": "ts-node scripts/check-wasm-checksum.ts",
+    "pretest": "npm run verify-wasm"
   },
   "repository": {
     "type": "git",
