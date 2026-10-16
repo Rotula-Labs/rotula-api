@@ -1,4 +1,10 @@
-import { getCronPattern, scheduleGroupCycle } from '../queue/contribution-scheduler.queue';
+import {
+    getCronPattern,
+    scheduleGroupCycle,
+    removeGroupCycle,
+    enqueueDelayedReminder,
+    enqueueCycleEnd,
+} from '../queue/contribution-scheduler.queue';
 import { redisClient } from '../lib/redis';
 
 // Mock bullmq
@@ -19,7 +25,7 @@ jest.mock('bullmq', () => {
 describe('Contribution Scheduler', () => {
     beforeAll(() => {
         // Assume Redis is ready for tests
-        Object.defineProperty(redisClient, 'status', { value: 'ready' });
+        Object.defineProperty(redisClient, 'status', { value: 'ready', configurable: true });
     });
 
     afterAll(async () => {
@@ -50,6 +56,105 @@ describe('Contribution Scheduler', () => {
         it('should add repeatable job with correct jobId and pattern', async () => {
             const jobId = await scheduleGroupCycle('group-123', 'WEEKLY');
             expect(jobId).toBe('cycle-start:group-123');
+        });
+    });
+
+    describe('enqueue and removal helpers', () => {
+        const getQueueInstance = () => {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const { Queue } = require('bullmq') as any;
+            return Queue.mock.results[Queue.mock.results.length - 1].value;
+        };
+
+        const setRedisStatus = (status: string) => {
+            Object.defineProperty(redisClient, 'status', { value: status, configurable: true });
+        };
+
+        beforeEach(() => {
+            jest.clearAllMocks();
+            setRedisStatus('ready');
+        });
+
+        afterAll(() => {
+            setRedisStatus('ready');
+        });
+
+        describe('removeGroupCycle', () => {
+            it('should remove the repeatable job with the cron pattern and cycle-start jobId', async () => {
+                const queue = getQueueInstance();
+                await removeGroupCycle('group-123', 'WEEKLY');
+                expect(queue.removeRepeatable).toHaveBeenCalledWith(
+                    'cycle-start:group-123',
+                    getCronPattern('WEEKLY')
+                );
+            });
+
+            it('should return null and log when Redis is not ready', async () => {
+                setRedisStatus('connecting');
+                const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+                const result = await removeGroupCycle('group-123', 'WEEKLY');
+                expect(result).toBeNull();
+                expect(errorSpy).toHaveBeenCalled();
+                errorSpy.mockRestore();
+            });
+        });
+
+        describe('enqueueDelayedReminder', () => {
+            it('should add a last-call-reminder job with the reminder jobId prefix', async () => {
+                const queue = getQueueInstance();
+                await enqueueDelayedReminder('group-123', 5000);
+                expect(queue.add).toHaveBeenCalled();
+                const [name, data, opts] = queue.add.mock.calls[0];
+                expect(name).toBe('last-call-reminder');
+                expect(data).toMatchObject({ groupId: 'group-123' });
+                expect(opts.delay).toBe(5000);
+                expect(opts.jobId).toMatch(/^reminder:group-123:\d+$/);
+            });
+
+            it('should clamp a negative delay to 0', async () => {
+                const queue = getQueueInstance();
+                await enqueueDelayedReminder('group-123', -1000);
+                const [, , opts] = queue.add.mock.calls[0];
+                expect(opts.delay).toBe(0);
+            });
+
+            it('should return null and log when Redis is not ready', async () => {
+                setRedisStatus('connecting');
+                const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+                const result = await enqueueDelayedReminder('group-123', 5000);
+                expect(result).toBeNull();
+                expect(errorSpy).toHaveBeenCalled();
+                errorSpy.mockRestore();
+            });
+        });
+
+        describe('enqueueCycleEnd', () => {
+            it('should add a cycle-end job with the end jobId prefix', async () => {
+                const queue = getQueueInstance();
+                await enqueueCycleEnd('group-123', 7500);
+                expect(queue.add).toHaveBeenCalled();
+                const [name, data, opts] = queue.add.mock.calls[0];
+                expect(name).toBe('cycle-end');
+                expect(data).toMatchObject({ groupId: 'group-123' });
+                expect(opts.delay).toBe(7500);
+                expect(opts.jobId).toMatch(/^end:group-123:\d+$/);
+            });
+
+            it('should clamp a negative delay to 0', async () => {
+                const queue = getQueueInstance();
+                await enqueueCycleEnd('group-123', -500);
+                const [, , opts] = queue.add.mock.calls[0];
+                expect(opts.delay).toBe(0);
+            });
+
+            it('should return null and log when Redis is not ready', async () => {
+                setRedisStatus('connecting');
+                const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+                const result = await enqueueCycleEnd('group-123', 7500);
+                expect(result).toBeNull();
+                expect(errorSpy).toHaveBeenCalled();
+                errorSpy.mockRestore();
+            });
         });
     });
 });
