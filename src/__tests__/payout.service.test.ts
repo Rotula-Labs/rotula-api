@@ -654,4 +654,52 @@ describe('PayoutService', () => {
             expect(state.currentPayoutIndex).toBe(0);
         });
     });
+
+    describe('active member notification filtering (#267)', () => {
+        it('queries only active (status != LEFT) members in notifyAllMembers', async () => {
+            const activeMember = makeMember('u1', 'CREATOR');
+            prisma.groupMember.findMany.mockResolvedValueOnce([activeMember]);
+
+            await payoutService.notifyAllMembers('g1', 'Test group broadcast');
+
+            expect(prisma.groupMember.findMany).toHaveBeenCalledWith({
+                where: { groupId: 'g1', status: { not: 'LEFT' } },
+                include: { user: true },
+            });
+            expect(mockSendMessage).toHaveBeenCalledTimes(1);
+            expect(mockSendMessage).toHaveBeenCalledWith('+1u1', 'Test group broadcast');
+        });
+
+        it('excludes departed (LEFT) members from sendFinalWarnings', async () => {
+            const creator = makeMember('u1', 'CREATOR');
+            const activeDefaulter = makeMember('u2', 'MEMBER');
+            const departedMember = { ...makeMember('u3', 'MEMBER'), status: 'LEFT' };
+
+            const group = {
+                id: 'g1',
+                name: 'Ajo Circle',
+                contributionAmount: 10,
+                currentPayoutIndex: 0,
+                totalCycles: 0,
+                currentCycleStart: null,
+                currentCycleEnd: null,
+                payoutOrder: ['u1', 'u2', 'u3'],
+                members: [creator, activeDefaulter, departedMember],
+            };
+
+            prisma.savingsGroup.findUnique.mockResolvedValueOnce(group);
+            prisma.contribution.findMany.mockResolvedValueOnce([{ userId: 'u1', status: 'COMPLETED' }]);
+            prisma.groupMember.findMany.mockResolvedValueOnce([creator, activeDefaulter]);
+
+            await payoutService.sendFinalWarnings('g1');
+
+            expect(prisma.groupMember.findMany).toHaveBeenCalledWith({
+                where: { groupId: 'g1', status: { not: 'LEFT' } },
+                include: { user: true },
+            });
+            expect(mockSendMessage).toHaveBeenCalledTimes(1);
+            expect(mockSendMessage).toHaveBeenCalledWith('+1u2', expect.stringContaining('Final warning'));
+            expect(mockSendMessage).not.toHaveBeenCalledWith('+1u3', expect.anything());
+        });
+    });
 });

@@ -165,7 +165,11 @@ export class PayoutService {
         const status = await this.getCycleContributionStatus(groupId);
         if (status.allContributed) return;
 
-        const membersById = new Map(status.group.members.map((m: any) => [m.userId, m.user]));
+        const activeRecipients = await this.getActiveGroupRecipients(groupId);
+        const membersById = new Map(
+            (activeRecipients.length > 0 ? activeRecipients : status.group.members.filter((m: any) => m.status !== 'LEFT'))
+                .map((m: any) => [m.userId, m.user]),
+        );
         for (const userId of status.missingUserIds) {
             const user: any = membersById.get(userId);
             if (!user?.phoneNumber) continue;
@@ -412,8 +416,22 @@ export class PayoutService {
         }
     }
 
-    private async notifyAllMembers(groupId: string, message: string): Promise<void> {
-        const members = await prisma.groupMember.findMany({ where: { groupId }, include: { user: true } });
+    public async getActiveGroupRecipients(groupId: string, excludeUserId?: string): Promise<any[]> {
+        const where: any = {
+            groupId,
+            status: { not: 'LEFT' },
+        };
+        if (excludeUserId) {
+            where.userId = { not: excludeUserId };
+        }
+        return prisma.groupMember.findMany({
+            where,
+            include: { user: true },
+        });
+    }
+
+    public async notifyAllMembers(groupId: string, message: string, excludeUserId?: string): Promise<void> {
+        const members = await this.getActiveGroupRecipients(groupId, excludeUserId);
         for (const member of members) {
             if (!member.user?.phoneNumber) continue;
             try {
