@@ -9,6 +9,7 @@
  *  - Does NOT persist a record when amounts match
  *  - Handles queryContribution() errors gracefully
  *  - Applies a 1-stroop tolerance for floating-point rounding
+ *  - Processes at most one page per run (bounded reconciliation scan)
  */
 import { runReconciliation, ReconciliationSummary } from '../workers/contract-sync.worker';
 import { SorobanService } from '../services/soroban.service';
@@ -230,5 +231,32 @@ describe('runReconciliation()', () => {
 
         expect(summary.groupsScanned).toBe(2);
         expect(summary.membersChecked).toBe(2);
+    });
+
+    it('processes at most one page of groups per run', async () => {
+        // Simulate a page of groups returned by the bounded query.
+        const page = Array.from({ length: 5 }, (_, i) =>
+            makeGroup({ id: `g${i + 1}`, stellarContractId: `CONTRACT_${i + 1}` }),
+        );
+        getMocks().findManyGroups.mockResolvedValue(page);
+        mockSorobanService.queryContribution.mockResolvedValue(0n);
+        getMocks().findManyContributions.mockResolvedValue([]);
+
+        const summary = await runReconciliation(mockSorobanService as any);
+
+        // The worker must request a bounded page from Prisma.
+        expect(getMocks().findManyGroups).toHaveBeenCalledTimes(1);
+        const callArgs = getMocks().findManyGroups.mock.calls[0][0];
+        expect(callArgs).toEqual(
+            expect.objectContaining({
+                take: expect.any(Number),
+            }),
+        );
+        expect(callArgs.take).toBeGreaterThan(0);
+        expect(callArgs.take).toBeLessThanOrEqual(100);
+
+        // And it must only process the groups from that single page.
+        expect(summary.groupsScanned).toBe(page.length);
+        expect(summary.membersChecked).toBe(page.length);
     });
 });

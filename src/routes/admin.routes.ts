@@ -1,6 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { keyRotationQueue } from '../queue/key-rotation.queue';
+import { z } from 'zod';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -59,15 +60,36 @@ router.get('/key-rotation/status', async (req, res) => {
 /**
  * GET /admin/reconciliation/status
  *
- * Returns all unresolved ReconciliationMismatch records grouped by groupId,
- * ordered by most recent detection first.
+ * Returns a bounded page of unresolved ReconciliationMismatch records grouped
+ * by groupId, ordered by most recent detection first, along with the total
+ * count of unresolved mismatches.
+ *
+ * Query params:
+ *   - limit: page size (default 100, max 500)
+ *   - cursor: opaque cursor from a previous response's `nextCursor`
  */
 router.get('/reconciliation/status', async (req, res) => {
     try {
-        const mismatches = await prisma.reconciliationMismatch.findMany({
-            where: { resolvedAt: null },
-            orderBy: { detectedAt: 'desc' },
+        const querySchema = z.object({
+            limit: z.coerce.number().int().min(1).max(500).default(100),
+            cursor: z.string().optional(),
         });
+        const parsed = querySchema.safeParse(req.query);
+        if (!parsed.success) {
+            return res.status(400).json({ error: 'Invalid query parameters' });
+        }
+        const { limit, cursor } = parsed.data;
+
+        const where = { resolvedAt: null };
+
+        const mismatches = await prisma.reconciliationMismatch.findMany({
+            where,
+            orderBy: { detectedAt: 'desc' },
+            take: limit,
+            ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+        });
+
+        const totalUnresolved = await prisma.reconciliationMismatch.count({ where });
 
         // Group by groupId for easier consumption
         const byGroup: Record<string, typeof mismatches> = {};
@@ -76,8 +98,13 @@ router.get('/reconciliation/status', async (req, res) => {
             byGroup[m.groupId].push(m);
         }
 
+        const nextCursor =
+            mismatches.length === limit ? mismatches[mismatches.length - 1].id : null;
+
         return res.json({
-            totalUnresolved: mismatches.length,
+            totalUnresolved,
+            pageSize: limit,
+            nextCursor,
             groups: Object.entries(byGroup).map(([groupId, items]) => ({
                 groupId,
                 mismatchCount: items.length,
