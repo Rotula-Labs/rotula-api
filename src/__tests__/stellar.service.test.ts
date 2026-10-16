@@ -1,4 +1,4 @@
-import { StellarService, InsufficientReserveError } from '../services/stellar.service';
+import { StellarService, InsufficientReserveError, UnsupportedAssetError } from '../services/stellar.service';
 import * as StellarSdk from '@stellar/stellar-sdk';
 import { config } from '../config/env';
 import { decrypt } from '../utils/encryption.util';
@@ -267,6 +267,60 @@ describe('StellarService', () => {
             const validPublicKey = 'GBBM6BKZPEHWPI3VK3VNKEJEXTMIGNNCE2ZEXSVEEKSJNDYTK2E4QUDE';
             await stellarService.sendPayment(mockSeed, validPublicKey, '10.0');
             expect(mockRedisDel).toHaveBeenCalledWith('tx_history:G_MOCK:page:1');
+        });
+
+        it('should build a USDC asset when assetCode is USDC', async () => {
+            const validPublicKey = 'GBBM6BKZPEHWPI3VK3VNKEJEXTMIGNNCE2ZEXSVEEKSJNDYTK2E4QUDE';
+            const originalIssuer = config.USDC_ISSUER_PUBLIC_KEY;
+            config.USDC_ISSUER_PUBLIC_KEY = 'G_USDC_ISSUER';
+
+            try {
+                await stellarService.sendPayment(mockSeed, validPublicKey, '10.0', 'USDC');
+
+                expect(StellarSdk.Operation.payment).toHaveBeenCalledWith(
+                    expect.objectContaining({
+                        asset: new StellarSdk.Asset('USDC', 'G_USDC_ISSUER'),
+                    }),
+                );
+            } finally {
+                config.USDC_ISSUER_PUBLIC_KEY = originalIssuer;
+            }
+        });
+
+        it('should reject USDC when USDC_ISSUER_PUBLIC_KEY is missing', async () => {
+            const validPublicKey = 'GBBM6BKZPEHWPI3VK3VNKEJEXTMIGNNCE2ZEXSVEEKSJNDYTK2E4QUDE';
+            const originalIssuer = config.USDC_ISSUER_PUBLIC_KEY;
+            config.USDC_ISSUER_PUBLIC_KEY = undefined as unknown as string;
+
+            try {
+                await expect(
+                    stellarService.sendPayment(mockSeed, validPublicKey, '10.0', 'USDC'),
+                ).rejects.toThrow(UnsupportedAssetError);
+                expect(mServer.submitTransaction).not.toHaveBeenCalled();
+            } finally {
+                config.USDC_ISSUER_PUBLIC_KEY = originalIssuer;
+            }
+        });
+
+        it('should reject an unsupported asset code', async () => {
+            const validPublicKey = 'GBBM6BKZPEHWPI3VK3VNKEJEXTMIGNNCE2ZEXSVEEKSJNDYTK2E4QUDE';
+
+            await expect(
+                stellarService.sendPayment(mockSeed, validPublicKey, '10.0', 'DOGE'),
+            ).rejects.toThrow(UnsupportedAssetError);
+            expect(mServer.submitTransaction).not.toHaveBeenCalled();
+        });
+
+        it('should default to native XLM when no assetCode is provided', async () => {
+            const validPublicKey = 'GBBM6BKZPEHWPI3VK3VNKEJEXTMIGNNCE2ZEXSVEEKSJNDYTK2E4QUDE';
+
+            await stellarService.sendPayment(mockSeed, validPublicKey, '10.0');
+
+            expect(StellarSdk.Operation.payment).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    asset: StellarSdk.Asset.native(),
+                }),
+            );
         });
     });
 
