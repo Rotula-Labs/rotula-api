@@ -1,0 +1,31 @@
+name: Workflow Lint
+on:
+  pull_request:
+    paths:
+    - '.github/**'
+  push:
+    branches:
+    - main
+    paths:
+    - '.github/**'
+jobs:
+  workflow-lint:
+    name: actionlint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+    - name: Checkout
+      uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+    - name: Install actionlint
+      env:
+        ACTIONLINT_VERSION: 1.7.12
+        ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+      run: |
+        curl -fsSL -o /tmp/actionlint.tar.gz "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+        echo "${ACTIONLINT_SHA256}  /tmp/actionlint.tar.gz" | sha256sum --check --strict -
+        tar -xzf /tmp/actionlint.tar.gz -C /tmp actionlint
+        /tmp/actionlint -version
+    - name: Run actionlint against .github/workflows
+      run: /tmp/actionlint -color .github/workflows/*.yml
+permissions:
+  contents: read
