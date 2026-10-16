@@ -54,7 +54,7 @@ router.get('/key-rotation/status', async (req, res) => {
     }
 });
 
-// ── Reconciliation endpoints ──────────────────────────────────────────────────
+// ── Reconciliation endpoints ─────────────────────────────────────────────────────────────────────
 
 /**
  * GET /admin/reconciliation/status

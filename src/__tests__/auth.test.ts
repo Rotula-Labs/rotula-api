@@ -29,6 +29,12 @@ jest.mock('@stellar/stellar-sdk', () => {
     };
 });
 
+jest.mock('../queue/key-rotation.queue', () => ({
+    keyRotationQueue: {
+        add: jest.fn().mockResolvedValue(undefined),
+    },
+}));
+
 import { authService } from '../services/auth.service';
 import { redisClient } from '../lib/redis';
 
@@ -108,5 +114,61 @@ describe('Auth Service - SEP-10', () => {
         await expect(authService.verifyChallengeAndGenerateToken(signedXdr)).rejects.toThrow();
 
         (global as any).mockZeroWeight = false;
+    });
+});
+
+describe('Admin routes - token gate', () => {
+    const originalAdminToken = process.env.ADMIN_TOKEN;
+    let request: any;
+    let app: any;
+
+    beforeAll(() => {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        request = require('supertest');
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const adminRouter = require('../routes/admin.routes').default;
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const express = require('express');
+        app = express();
+        app.use(express.json());
+        app.use('/admin', adminRouter);
+    });
+
+    afterEach(() => {
+        if (originalAdminToken === undefined) {
+            delete process.env.ADMIN_TOKEN;
+        } else {
+            process.env.ADMIN_TOKEN = originalAdminToken;
+        }
+    });
+
+    it('returns 401 when no Authorization header is provided', async () => {
+        process.env.ADMIN_TOKEN = 'secret-token';
+        const res = await request(app).get('/admin/anything');
+        expect(res.status).toBe(401);
+    });
+
+    it('returns 401 when a wrong token is provided', async () => {
+        process.env.ADMIN_TOKEN = 'secret-token';
+        const res = await request(app)
+            .get('/admin/anything')
+            .set('Authorization', 'Bearer wrong-token');
+        expect(res.status).toBe(401);
+    });
+
+    it('passes the gate when the correct token is provided', async () => {
+        process.env.ADMIN_TOKEN = 'secret-token';
+        const res = await request(app)
+            .get('/admin/anything')
+            .set('Authorization', `Bearer ${process.env.ADMIN_TOKEN}`);
+        expect(res.status).not.toBe(401);
+    });
+
+    it('returns 401 when ADMIN_TOKEN is unset and Bearer undefined is supplied', async () => {
+        delete process.env.ADMIN_TOKEN;
+        const res = await request(app)
+            .get('/admin/anything')
+            .set('Authorization', 'Bearer undefined');
+        expect(res.status).toBe(401);
     });
 });
