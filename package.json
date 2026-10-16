@@ -16,11 +16,10 @@
   "author": "",
   "license": "MIT",
   "homepage": "https://github.com/Rotula-Labs/rotula-api#readme",
-  "type": "commonjs",
+  "type": "commonsjs",
   "dependencies": {
     "@prisma/client": "^5.11.0",
     "@stellar/stellar-sdk": "^15.1.0",
-    "@types/supertest": "^7.2.0",
     "axios": "^1.17.0",
     "bullmq": "^5.79.0",
     "chokidar": "^4.0.0",
@@ -31,9 +30,7 @@
     "i18next-fs-backend": "^2.6.6",
     "ioredis": "^5.11.1",
     "jsonwebtoken": "^9.0.3",
-    "pg": "^8.21.0",
-    "rate-limit-redis": "^5.0.0",
-    "supertest": "^7.2.2"
+    "rate-limit-redis": "^5.0.0"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",
