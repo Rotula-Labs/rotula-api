@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { httpAgent, httpsAgent } from '../config/httpAgents';
 import { config } from '../config/env';
 
 export class WhatsAppService {
@@ -19,6 +20,8 @@ export class WhatsAppService {
                         Authorization: `Bearer ${config.WHATSAPP_TOKEN}`,
                         'Content-Type': 'application/json',
                     },
+                    httpAgent,
+                    httpsAgent,
                 }
             );
         } catch (error) {
