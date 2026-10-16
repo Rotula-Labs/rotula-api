@@ -116,6 +116,8 @@ npm run dev      # run with nodemon (requires nodemon, which is not a declared d
 npm test         # run the Jest suite
 ```
 
+Test tooling such as `supertest` and `@types/supertest` stays in `devDependencies`; runtime dependencies should earn their place in the runtime image.
+
 `npm run dev` shells out to `nodemon`, which is not listed in `package.json`; either install it (`npm install --save-dev nodemon`) or run the service directly with the declared `npx ts-node src/index.ts`.
 
 Apply Prisma migrations and generate the Prisma client for your development database before running database-backed flows. Configure Stellar Testnet and a Soroban Testnet RPC endpoint for integration work.
