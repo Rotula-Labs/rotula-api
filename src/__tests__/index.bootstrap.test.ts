@@ -1,3 +1,4 @@
+
 jest.mock('express', () => {
     const app = {
         use: jest.fn(),
@@ -5,7 +6,12 @@ jest.mock('express', () => {
         listen: jest.fn(() => ({ setTimeout: jest.fn() })),
     };
     const express = jest.fn(() => app);
-    (express as any).json = jest.fn();
+    (express as any).json = jest.fn(() => {
+        const parser: any = jest.fn();
+        parser.__isJsonParser = true;
+        return parser;
+    });
+    (express as any).static = jest.fn();
     return { __esModule: true, default: express, __app: app };
 });
 
@@ -29,6 +35,12 @@ jest.mock('../config/env', () => ({
 jest.mock('../routes/bot.routes', () => ({}));
 jest.mock('../routes/admin.routes', () => ({}));
 jest.mock('../routes/auth.routes', () => ({}));
+jest.mock('../routes/webhook.routes', () => ({}));
+jest.mock('../routes/health.routes', () => ({}));
+jest.mock('../routes/probe.routes', () => ({}));
+jest.mock('../routes/key-rotation.routes', () => ({}));
+jest.mock('../routes/contribution.routes', () => ({}));
+jest.mock('../routes/payment-request.routes', () => ({}));
 
 jest.mock('../services/observability.service', () => ({
     observabilityService: {
@@ -77,5 +89,48 @@ describe('server bootstrap', () => {
         expect(startContractSyncWorker).toHaveBeenCalledTimes(1);
         expect(startContributionSchedulerWorker).toHaveBeenCalledTimes(1);
         expect(startPaymentRequestWorker).toHaveBeenCalledTimes(1);
+    });
+
+    it('mounts every expected route prefix on the real app', () => {
+        const mountedPaths = app.use.mock.calls
+            .map((call: any[]) => call[0])
+            .filter((arg: unknown): arg is string => typeof arg === 'string');
+
+        expect(mountedPaths).toEqual(
+            expect.arrayContaining([
+                '/api/webhook',
+                '/auth/challenge',
+                '/auth/token',
+                '/admin/key-rotation/status',
+            ]),
+        );
+    });
+
+    it('registers the JSON body parser before the webhook route', () => {
+        const jsonParserIndex = app.use.mock.calls.findIndex(
+            (call: any[]) => call[0] && call[0].__isJsonParser === true,
+        );
+        const webhookIndex = app.use.mock.calls.findIndex(
+            (call: any[]) => call[0] === '/api/webhook',
+        );
+
+        expect(jsonParserIndex).toBeGreaterThanOrEqual(0);
+        expect(webhookIndex).toBeGreaterThanOrEqual(0);
+        expect(jsonParserIndex).toBeLessThan(webhookIndex);
+    });
+
+    it('registers a JSON 404 handler for unknown paths', () => {
+        const notFoundHandler = app.use.mock.calls
+            .map((call: any[]) => call[call.length - 1])
+            .find((handler: any) => typeof handler === 'function' && handler.length === 2);
+
+        expect(notFoundHandler).toBeDefined();
+
+        const req = {} as any;
+        const res = { status: jest.fn().mockReturnThis(), json: jest.fn() } as any;
+        notFoundHandler(req, res);
+
+        expect(res.status).toHaveBeenCalledWith(404);
+        expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ error: expect.any(String) }));
     });
 });
