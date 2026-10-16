@@ -5,6 +5,8 @@ import { keyRotationQueue } from '../queue/key-rotation.queue';
 const router = Router();
 const prisma = new PrismaClient();
 
+type AdminRequest = Request & { adminIdentity?: string };
+
 const adminAuth = (req: Request, res: Response, next: NextFunction) => {
     const authHeader = req.headers.authorization;
     const adminToken = process.env.ADMIN_TOKEN;
@@ -12,6 +14,11 @@ const adminAuth = (req: Request, res: Response, next: NextFunction) => {
     if (!adminToken || !authHeader || authHeader !== `Bearer ${adminToken}`) {
         return res.status(401).json({ error: 'Unauthorized' });
     }
+
+    // Bind the authenticated principal to the request so downstream handlers
+    // can derive the actor identity from the token rather than the body.
+    (req as AdminRequest).adminIdentity =
+        process.env.ADMIN_IDENTITY?.trim() || 'admin-token';
     
     next();
 };
@@ -93,15 +100,17 @@ router.get('/reconciliation/status', async (req, res) => {
  * PATCH /admin/reconciliation/:id/resolve
  *
  * Marks a single mismatch as resolved after admin investigation.
- * Body: { resolvedBy: string } — the admin's userId or identifier.
+ * The resolver identity is derived from the authenticated caller, not the body.
  */
 router.patch('/reconciliation/:id/resolve', async (req, res) => {
     const { id } = req.params;
-    const { resolvedBy } = req.body as { resolvedBy?: string };
 
-    if (!resolvedBy) {
-        return res.status(400).json({ error: 'resolvedBy is required' });
-    }
+    // Derive the actor from the authenticated principal. Per-admin identities
+    // are not yet available, so we record the authenticated token's label plus
+    // a server timestamp. Any `resolvedBy` supplied in the body is ignored.
+    const adminIdentity =
+        (req as AdminRequest).adminIdentity || 'admin-token';
+    const resolvedBy = `${adminIdentity}@${new Date().toISOString()}`;
 
     try {
         const mismatch = await prisma.reconciliationMismatch.findUnique({ where: { id } });
@@ -114,7 +123,7 @@ router.patch('/reconciliation/:id/resolve', async (req, res) => {
 
         const updated = await prisma.reconciliationMismatch.update({
             where: { id },
-            data: { resolvedAt: new Date(), resolvedBy },
+            data: { resolvedAt: new Date(), resolvedBy: resolvedBy || 'unknown-admin' },
         });
 
         return res.json({ message: 'Mismatch marked as resolved', mismatch: updated });
