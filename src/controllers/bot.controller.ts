@@ -75,32 +75,59 @@ export class BotController {
     }
 
     /**
-     * Safely extract the first inbound text message from a (possibly malformed
-     * or malicious) webhook body. Optional chaining is used end-to-end so a
-     * partial or garbage payload can never throw a TypeError.
-     * Returns null when there is no actionable text message.
+     * Safely extract all inbound text messages across all entries and changes in a
+     * (possibly malformed or malicious) webhook body, deduplicating by message ID.
      */
+    public extractTextMessages(body: WhatsAppWebhookBody): IncomingTextMessage[] {
+        const entries = Array.isArray(body?.entry) ? body.entry : [];
+        const results: IncomingTextMessage[] = [];
+        const seenIds = new Set<string>();
+
+        for (const entry of entries) {
+            const changes = Array.isArray(entry?.changes) ? entry.changes : [];
+            for (const change of changes) {
+                const value = change?.value;
+                const messages = Array.isArray(value?.messages) ? value.messages : [];
+                const contacts = Array.isArray(value?.contacts) ? value.contacts : undefined;
+
+                for (const message of messages) {
+                    const from = message?.from;
+                    const msgBody = message?.text?.body;
+                    const id = message?.id;
+
+                    if (
+                        typeof from !== 'string' ||
+                        typeof msgBody !== 'string' ||
+                        msgBody.length === 0 ||
+                        typeof id !== 'string' ||
+                        seenIds.has(id)
+                    ) {
+                        continue;
+                    }
+
+                    seenIds.add(id);
+
+                    let locale: string | undefined;
+                    const contact = contacts?.find((c) => c.wa_id === from);
+                    if (contact && (contact as any).profile?.locale) {
+                        locale = (contact as any).profile.locale;
+                    }
+
+                    const extracted: IncomingTextMessage = { from, msgBody, whatsappMessageId: id };
+                    if (locale !== undefined) {
+                        extracted.locale = locale;
+                    }
+                    results.push(extracted);
+                }
+            }
+        }
+
+        return results;
+    }
+
     private extractTextMessage(body: WhatsAppWebhookBody): IncomingTextMessage | null {
-        const value = body.entry?.[0]?.changes?.[0]?.value;
-        const message = value?.messages?.[0];
-        const contacts = value?.contacts;
-        
-        const from = message?.from;
-        const msgBody = message?.text?.body;
-        const id = message?.id;
-
-        if (typeof from !== 'string' || typeof msgBody !== 'string' || msgBody.length === 0 || typeof id !== 'string') {
-            return null;
-        }
-
-        // Try to extract locale if available in contacts metadata for this sender (e.g., from WhatsApp profile)
-        let locale: string | undefined;
-        const contact = contacts?.find(c => c.wa_id === from);
-        if (contact && (contact as any).profile?.locale) {
-            locale = (contact as any).profile.locale;
-        }
-
-        return { from, msgBody, whatsappMessageId: id, locale };
+        const messages = this.extractTextMessages(body);
+        return messages.length > 0 ? messages[0] : null;
     }
 
     public async handleMessage(req: Request, res: Response) {
@@ -111,9 +138,9 @@ export class BotController {
             return;
         }
 
-        const message = this.extractTextMessage(body);
+        const messages = this.extractTextMessages(body);
 
-        if (!message) {
+        if (messages.length === 0) {
             // Valid webhook event that carries nothing for us to act on
             // (status update, empty body, non-text message, etc.). Acknowledge.
             res.sendStatus(200);
@@ -122,23 +149,26 @@ export class BotController {
 
         observabilityService.logInfo('Received webhook message');
 
-        try {
-            await this.enqueueWithTimeout({
-                from: message.from,
-                msgBody: message.msgBody,
-                whatsappMessageId: message.whatsappMessageId,
-                locale: message.locale,
-            });
-        } catch (err) {
-            observabilityService.alertCriticalFailure('Failed to enqueue webhook message', err, {
-                from: message.from,
-            });
-            // Let a queue/Redis failure surface as an unhandled promise
-            // rejection. Returning 500 makes WhatsApp retry delivery rather
-            // than silently dropping the message — important for a financial
-            // app where a lost message can mean a lost transaction.
-            res.sendStatus(500);
-            return;
+        for (const message of messages) {
+            try {
+                const payload: MessageJobData = {
+                    from: message.from,
+                    msgBody: message.msgBody,
+                    whatsappMessageId: message.whatsappMessageId,
+                };
+                if (message.locale !== undefined) {
+                    payload.locale = message.locale;
+                }
+                await this.enqueueWithTimeout(payload);
+            } catch (err) {
+                observabilityService.alertCriticalFailure('Failed to enqueue webhook message', err, {
+                    from: message.from,
+                });
+                // Let a queue/Redis failure surface as a 500 so WhatsApp retries
+                // delivery; already-enqueued messages are deduplicated by jobId.
+                res.sendStatus(500);
+                return;
+            }
         }
 
         res.sendStatus(200);
