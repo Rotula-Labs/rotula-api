@@ -1,6 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { keyRotationQueue } from '../queue/key-rotation.queue';
+import { adminRateLimiter } from '../middleware/rateLimiter';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -16,6 +17,8 @@ const adminAuth = (req: Request, res: Response, next: NextFunction) => {
     next();
 };
 
+// Throttle before auth so failed token guesses are counted as well.
+router.use(adminRateLimiter);
 router.use(adminAuth);
 router.post('/key-rotation/start', async (req, res) => {
     try {
