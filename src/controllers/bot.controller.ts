@@ -120,6 +120,7 @@ export class BotController {
             return;
         }
 
+        observabilityService.incrementCounter('webhook_received');
         observabilityService.logInfo('Received webhook message');
 
         try {
@@ -129,7 +130,9 @@ export class BotController {
                 whatsappMessageId: message.whatsappMessageId,
                 locale: message.locale,
             });
+            observabilityService.incrementCounter('message_enqueued');
         } catch (err) {
+            observabilityService.incrementCounter('enqueue_failures');
             observabilityService.alertCriticalFailure('Failed to enqueue webhook message', err, {
                 from: message.from,
             });
@@ -146,8 +149,8 @@ export class BotController {
 
     /**
      * Enqueue a message with a hard timeout so a stalled queue connection can
-     * never hang the webhook. Resolves once the job is queued; rejects on
-     * enqueue error or when ENQUEUE_TIMEOUT_MS elapses. The timer is always
+     * never hang the webhook. Resolves once the job is queued; rejects on enqueue
+     * error or when ENQUEUE_TIMEOUT_MS elapses. The timer is always
      * cleared so it cannot keep the event loop alive.
      */
     private async enqueueWithTimeout(data: MessageJobData): Promise<void> {

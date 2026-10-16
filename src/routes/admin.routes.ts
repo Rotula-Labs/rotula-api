@@ -1,6 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { keyRotationQueue } from '../queue/key-rotation.queue';
+import { metrics } from '../services/observability.service';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -55,6 +56,17 @@ router.get('/key-rotation/status', async (req, res) => {
 });
 
 // ── Reconciliation endpoints ──────────────────────────────────────────────────
+
+/**
+ * GET /admin/metrics
+ *
+ * Returns a process-local snapshot of the in-memory counter and histogram
+ * registry: webhook receipts, worker success/failure, outbound sends,
+ * rate-limit rejections and per-message processing latency.
+ */
+router.get('/metrics', (req, res) => {
+    return res.json(metrics.snapshot());
+});
 
 /**
  * GET /admin/reconciliation/status

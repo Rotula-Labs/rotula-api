@@ -1,6 +1,7 @@
 import express, { type ErrorRequestHandler } from 'express';
 import { spawnSync } from 'child_process';
-import { StrKey } from '@stellar/stellar-sdk';
+import { observabilityService } from './services/observability.service';
+const { StrKey } = require('@stellar/stellar-sdk');
 import botRoutes from './routes/bot.routes';
 import adminRoutes from './routes/admin.routes';
 import authRoutes from './routes/auth.routes';
@@ -11,7 +12,6 @@ import { startKeyRotationWorker } from './workers/key-rotation.worker';
 import { startContractSyncWorker } from './workers/contract-sync.worker';
 import { startContributionSchedulerWorker } from './workers/contribution-scheduler.worker';
 import { startPaymentRequestWorker } from './workers/payment-request.worker';
-import { observabilityService } from './services/observability.service';
 import { zeroAllInFlightSecrets } from './utils/secret-registry';
 
 if (!config.ENCRYPTION_KEY) {
@@ -22,8 +22,8 @@ if (!config.WHATSAPP_APP_SECRET) {
     throw new Error('WHATSAPP_APP_SECRET environment variable is required');
 }
 
-if (config.USDC_ISSUER_PUBLIC_KEY && !StrKey.isValidEd25519PublicKey(config.USDC_ISSUER_PUBLIC_KEY)) {
-    throw new Error('USDC_ISSUER_PUBLIC_KEY is set but is not a valid Stellar public key');
+if (config.USDC_ISSUER_PUBLIC_KEY && !StrKey.isValidEd25519PublicKey(config.USDB_ISSUER_PUBLIC_KEY)) {
+    throw new Error('USDB_ISSUER_PUBLIC_KEY is set but is not a valid Stellar public key');
 }
 
 // Check core dump configuration at startup
@@ -76,6 +76,10 @@ app.get('/', (req, res) => {
     res.send('Rotula Backend is running');
 });
 
+// Metrics snapshot endpoint. Process-local counters and latency histogram.
+app.get('/metrics', (req, res) => {
+    res.json(observabilityService.getMetricsSnapshot());
+});
 
 // Centralised error-handling middleware. Express 5 forwards rejected promises
 // from async route handlers here, so any error that slips past a controller's
@@ -99,7 +103,6 @@ const server = app.listen(config.PORT, () => {
     startContributionSchedulerWorker();
     startPaymentRequestWorker();
 });
-
 
 // Enforce a server-level timeout
 server.setTimeout(30000);
