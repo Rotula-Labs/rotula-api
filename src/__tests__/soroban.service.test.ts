@@ -1,6 +1,7 @@
 /**
  * Tests for the new SorobanService methods added for contribution sync:
  *  - invokeContribute()
+ *  - initializeContract()
  *  - queryContribution()
  *  - submitTransaction() polling paths (SUCCESS, FAILED, PENDING timeout)
  */
@@ -262,6 +263,119 @@ describe('SorobanService.removeMember()', () => {
         await expect(
             service.removeMember(adminKeypair, contractId, memberPublicKey, mockServer),
         ).rejects.toThrow('Transaction failed on ledger: remove_fail_hash');
+    });
+});
+
+// ── initializeContract ────────────────────────────────────────────────────────
+
+describe('SorobanService.initializeContract()', () => {
+    let service: SorobanService;
+    let mockServer: any;
+    let adminKeypair: StellarSdk.Keypair;
+    const contractId = 'CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM';
+    const tokenAddress = 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC';
+
+    function getBuiltArgs(): StellarSdk.xdr.ScVal[] {
+        const simulateCall = mockServer.simulateTransaction.mock.calls[0][0];
+        const envelope = StellarSdk.TransactionBuilder.fromXDR(
+            simulateCall.toEnvelope().toXDR('base64'),
+            StellarSdk.Networks.TESTNET,
+        ) as StellarSdk.Transaction;
+        const op = envelope.operations[0] as any;
+        return op.func.invokeContract().args();
+    }
+
+    beforeEach(() => {
+        adminKeypair = StellarSdk.Keypair.random();
+        service = new SorobanService('https://soroban-testnet.stellar.org');
+        mockServer = {
+            simulateTransaction: jest.fn().mockResolvedValue(makeSimSuccess()),
+            sendTransaction: jest.fn().mockResolvedValue({ status: 'SUCCESS', hash: 'init_hash_1' }),
+            getTransaction: jest.fn(),
+            getAccount: jest.fn().mockResolvedValue(new StellarSdk.Account(adminKeypair.publicKey(), '50')),
+        };
+        service.server = mockServer;
+    });
+
+    it('passes a bigint contribution amount through unchanged', async () => {
+        await service.initializeContract(
+            adminKeypair,
+            contractId,
+            tokenAddress,
+            'Test Group',
+            10n,
+            mockServer,
+        );
+
+        const args = getBuiltArgs();
+        const amountScVal = args[3];
+        expect(amountScVal.switch().name).toBe('scvI128');
+        const parts = amountScVal.i128();
+        const lo = BigInt(parts.lo().toString());
+        const hi = BigInt(parts.hi().toString());
+        expect((hi << 64n) + lo).toBe(10n);
+    });
+
+    it('converts a numeric string contribution amount to a bigint', async () => {
+        await service.initializeContract(
+            adminKeypair,
+            contractId,
+            tokenAddress,
+            'Test Group',
+            '10' as any,
+            mockServer,
+        );
+
+        const args = getBuiltArgs();
+        const amountScVal = args[3];
+        expect(amountScVal.switch().name).toBe('scvI128');
+        const parts = amountScVal.i128();
+        const lo = BigInt(parts.lo().toString());
+        const hi = BigInt(parts.hi().toString());
+        expect((hi << 64n) + lo).toBe(10n);
+    });
+
+    it('encodes the amount argument as an i128 ScVal', async () => {
+        await service.initializeContract(
+            adminKeypair,
+            contractId,
+            tokenAddress,
+            'Test Group',
+            100_000_000n,
+            mockServer,
+        );
+
+        const args = getBuiltArgs();
+        expect(args[3].switch().name).toBe('scvI128');
+    });
+
+    it('orders arguments as admin, token address, group name, amount', async () => {
+        await service.initializeContract(
+            adminKeypair,
+            contractId,
+            tokenAddress,
+            'Test Group',
+            42n,
+            mockServer,
+        );
+
+        const args = getBuiltArgs();
+        expect(args).toHaveLength(4);
+
+        // arg 0: admin address
+        expect(args[0].switch().name).toBe('scvAddress');
+        expect(StellarSdk.Address.fromScVal(args[0]).toString()).toBe(adminKeypair.publicKey());
+
+        // arg 1: token address
+        expect(args[1].switch().name).toBe('scvAddress');
+        expect(StellarSdk.Address.fromScVal(args[1]).toString()).toBe(tokenAddress);
+
+        // arg 2: group name
+        expect(args[2].switch().name).toBe('scvString');
+        expect(args[2].str().toString()).toBe('Test Group');
+
+        // arg 3: amount
+        expect(args[3].switch().name).toBe('scvI128');
     });
 });
 
