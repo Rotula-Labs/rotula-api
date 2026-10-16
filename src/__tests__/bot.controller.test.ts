@@ -137,6 +137,87 @@ describe('BotController', () => {
             expect(mockRes.sendStatus).toHaveBeenCalledWith(500);
             expect(mockEnqueueMessage).toHaveBeenCalledTimes(1);
         });
+
+        it('should enqueue every message in a batched payload and deduplicate duplicate message IDs (#255)', async () => {
+            mockReq = {
+                body: {
+                    object: 'whatsapp_business_account',
+                    entry: [
+                        {
+                            changes: [
+                                {
+                                    value: {
+                                        messages: [
+                                            { from: '12345', id: 'wamid.batch.1', text: { body: 'BALANCE' } },
+                                            { from: '12345', id: 'wamid.batch.2', text: { body: 'SEND 10 @jane' } },
+                                            { from: '12345', id: 'wamid.batch.1', text: { body: 'BALANCE' } },
+                                        ],
+                                    },
+                                },
+                                {
+                                    value: {
+                                        messages: [
+                                            { from: '67890', id: 'wamid.batch.3', text: { body: 'HISTORY' } },
+                                        ],
+                                    },
+                                },
+                            ],
+                        },
+                    ],
+                },
+            };
+
+            await botController.handleMessage(mockReq as Request, mockRes as Response);
+
+            expect(mockRes.sendStatus).toHaveBeenCalledWith(200);
+            expect(mockEnqueueMessage).toHaveBeenCalledTimes(3);
+            expect(mockEnqueueMessage).toHaveBeenNthCalledWith(1, {
+                from: '12345',
+                msgBody: 'BALANCE',
+                whatsappMessageId: 'wamid.batch.1',
+            });
+            expect(mockEnqueueMessage).toHaveBeenNthCalledWith(2, {
+                from: '12345',
+                msgBody: 'SEND 10 @jane',
+                whatsappMessageId: 'wamid.batch.2',
+            });
+            expect(mockEnqueueMessage).toHaveBeenNthCalledWith(3, {
+                from: '67890',
+                msgBody: 'HISTORY',
+                whatsappMessageId: 'wamid.batch.3',
+            });
+        });
+
+        it('should return 500 when the second message in a batch fails to enqueue', async () => {
+            mockEnqueueMessage
+                .mockResolvedValueOnce({ id: 'wamid.batch.1' })
+                .mockRejectedValueOnce(new Error('redis down'));
+
+            mockReq = {
+                body: {
+                    object: 'whatsapp_business_account',
+                    entry: [
+                        {
+                            changes: [
+                                {
+                                    value: {
+                                        messages: [
+                                            { from: '12345', id: 'wamid.batch.1', text: { body: 'BALANCE' } },
+                                            { from: '12345', id: 'wamid.batch.2', text: { body: 'SEND 10 @jane' } },
+                                        ],
+                                    },
+                                },
+                            ],
+                        },
+                    ],
+                },
+            };
+
+            await botController.handleMessage(mockReq as Request, mockRes as Response);
+
+            expect(mockEnqueueMessage).toHaveBeenCalledTimes(2);
+            expect(mockRes.sendStatus).toHaveBeenCalledWith(500);
+        });
     });
 
     describe('handleMessage - reliability edge cases', () => {

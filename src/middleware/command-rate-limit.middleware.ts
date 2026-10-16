@@ -47,10 +47,62 @@ export function classifyCommand(text: string): CommandTier {
 }
 
 /**
+ * Extracts all WhatsApp messages across all entries and changes in a webhook payload.
+ */
+export function extractAllMessageDetails(
+    req: any
+): Array<{ phoneNumber: string; commandText: string; messageId?: string }> {
+    let body = req.body;
+    if (!body && req.rawBody) {
+        try {
+            body = JSON.parse(req.rawBody.toString('utf8'));
+        } catch (e) {
+            // ignore JSON parse error
+        }
+    }
+
+    const entries = Array.isArray(body?.entry) ? body.entry : [];
+    const results: Array<{ phoneNumber: string; commandText: string; messageId?: string }> = [];
+    const seenIds = new Set<string>();
+
+    for (const entry of entries) {
+        const changes = Array.isArray(entry?.changes) ? entry.changes : [];
+        for (const change of changes) {
+            const messages = Array.isArray(change?.value?.messages) ? change.value.messages : [];
+            for (const message of messages) {
+                const from = message?.from;
+                const msgBody = message?.text?.body;
+                const id = typeof message?.id === 'string' ? message.id : undefined;
+
+                if (typeof from === 'string' && typeof msgBody === 'string') {
+                    if (id && seenIds.has(id)) {
+                        continue;
+                    }
+                    if (id) {
+                        seenIds.add(id);
+                    }
+                    results.push({ phoneNumber: from, commandText: msgBody, messageId: id });
+                }
+            }
+        }
+    }
+
+    return results;
+}
+
+/**
  * Minimally parses request to extract the WhatsApp message body and sender.
  * Useful if express.json() is not run yet, or as a defensive guard.
  */
 export function extractMessageDetails(req: any): { phoneNumber: string | null; commandText: string | null } {
+    const details = extractAllMessageDetails(req);
+    if (details.length > 0) {
+        return {
+            phoneNumber: details[0].phoneNumber,
+            commandText: details[0].commandText,
+        };
+    }
+
     let body = req.body;
     if (!body && req.rawBody) {
         try {
@@ -168,86 +220,81 @@ export const commandRateLimitMiddleware = async (
     res: Response,
     next: NextFunction
 ): Promise<void> => {
-    // 1. Extract details from the request
-    const { phoneNumber, commandText } = extractMessageDetails(req);
-
-    // Default parameters
     const windowMs = 60 * 1000; // 1 minute window
-    let tier: CommandTier = 'GENERAL';
-    let limit = 30; // default GENERAL limit
-    let isUser = false;
-    let rateLimitKey = '';
+    const batchDetails = extractAllMessageDetails(req);
 
-    if (phoneNumber) {
-        isUser = true;
-        rateLimitKey = `rate_limit:${phoneNumber}`;
-        if (commandText) {
-            tier = classifyCommand(commandText);
-            rateLimitKey = `rate_limit:${tier}:${phoneNumber}`;
-        }
-    } else {
-        // Fallback key: IP address (e.g. for GET requests / webhook verifications / API calls)
-        const ip = req.ip || req.socket?.remoteAddress || 'unknown';
-        rateLimitKey = `rate_limit:ip:${ip}`;
-    }
+    const items: Array<{ phoneNumber: string | null; commandText: string | null }> =
+        batchDetails.length > 0 ? batchDetails : [extractMessageDetails(req)];
 
-    // Map limits based on tier
-    if (tier === 'FINANCIAL') {
-        limit = 5;
-    } else if (tier === 'READ') {
-        limit = 10;
-    }
+    for (const { phoneNumber, commandText } of items) {
+        let tier: CommandTier = 'GENERAL';
+        let limit = 30; // default GENERAL limit
+        let isUser = false;
+        let rateLimitKey = '';
 
-    // 2. Perform the sliding window rate limit check
-    const { allowed, remainingSeconds } = await checkLimit(rateLimitKey, limit, windowMs);
-
-    if (!allowed) {
-        // Exceeded limit:
-        // Set Retry-After header
-        res.setHeader('Retry-After', remainingSeconds.toString());
-
-        if (isUser && phoneNumber) {
-            // Fetch user preferred language
-            let lang = 'en';
-            try {
-                await initI18n();
-                const user = await prisma.user.findFirst({ where: { phoneNumber } }) as any;
-                if (user && user.language) {
-                    lang = user.language;
-                }
-            } catch (e) {
-                // Ignore DB read failure in rate limiter to prevent denial of service
+        if (phoneNumber) {
+            isUser = true;
+            rateLimitKey = `rate_limit:${phoneNumber}`;
+            if (commandText) {
+                tier = classifyCommand(commandText);
+                rateLimitKey = `rate_limit:${tier}:${phoneNumber}`;
             }
+        } else {
+            // Fallback key: IP address (e.g. for GET requests / webhook verifications / API calls)
+            const ip = req.ip || req.socket?.remoteAddress || 'unknown';
+            rateLimitKey = `rate_limit:ip:${ip}`;
+        }
 
-            const warningMsg = t('rate_limit.exceeded', lang, { remainingSeconds });
-            // Send message via WhatsApp
-            whatsappService.sendMessage(phoneNumber, warningMsg).catch((err) => {
-                console.error('Failed to send WhatsApp rate limit notification:', err);
-            });
+        // Map limits based on tier
+        if (tier === 'FINANCIAL') {
+            limit = 5;
+        } else if (tier === 'READ') {
+            limit = 10;
+        }
 
-            // If financial rate limit is hit, record this hit in abuse detection
-            if (tier === 'FINANCIAL') {
+        // Perform the sliding window rate limit check
+        const { allowed, remainingSeconds } = await checkLimit(rateLimitKey, limit, windowMs);
+
+        if (!allowed) {
+            res.setHeader('Retry-After', remainingSeconds.toString());
+
+            if (isUser && phoneNumber) {
+                let lang = 'en';
                 try {
-                    await abuseDetectionService.recordFinancialLimitHit(phoneNumber, commandText || '');
-                } catch (err) {
-                    console.error('Failed to record financial limit hit:', err);
+                    await initI18n();
+                    const user = (await prisma.user.findFirst({ where: { phoneNumber } })) as any;
+                    if (user && user.language) {
+                        lang = user.language;
+                    }
+                } catch (e) {
+                    // Ignore DB read failure in rate limiter to prevent denial of service
+                }
+
+                const warningMsg = t('rate_limit.exceeded', lang, { remainingSeconds });
+                whatsappService.sendMessage(phoneNumber, warningMsg).catch((err) => {
+                    console.error('Failed to send WhatsApp rate limit notification:', err);
+                });
+
+                if (tier === 'FINANCIAL') {
+                    try {
+                        await abuseDetectionService.recordFinancialLimitHit(phoneNumber, commandText || '');
+                    } catch (err) {
+                        console.error('Failed to record financial limit hit:', err);
+                    }
                 }
             }
+
+            res.status(429).json({
+                error: `Too many requests. Please wait ${remainingSeconds} seconds.`,
+            });
+            return;
         }
 
-        // Return 429 Too Many Requests response
-        res.status(429).json({
-            error: `Too many requests. Please wait ${remainingSeconds} seconds.`,
-        });
-        return;
-    }
-
-    // Allowed:
-    if (isUser && phoneNumber && commandText) {
-        // Record successful command in history
-        abuseDetectionService.recordCommand(phoneNumber, commandText).catch((err) => {
-            console.error('Failed to record command in abuse detection service:', err);
-        });
+        if (isUser && phoneNumber && commandText) {
+            abuseDetectionService.recordCommand(phoneNumber, commandText).catch((err) => {
+                console.error('Failed to record command in abuse detection service:', err);
+            });
+        }
     }
 
     next();

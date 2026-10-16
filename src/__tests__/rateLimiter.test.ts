@@ -5,6 +5,7 @@ import {
     clearInMemoryStore,
     classifyCommand,
     extractMessageDetails,
+    extractAllMessageDetails,
 } from '../middleware/command-rate-limit.middleware';
 import { abuseDetectionService } from '../services/abuse-detection.service';
 import { redisClient } from '../lib/redis';
@@ -162,6 +163,31 @@ describe('Sliding Window Rate Limiter & Abuse Detection', () => {
                 phoneNumber: '2349000000000',
                 commandText: 'BALANCE',
             });
+
+            // Shape 3: Batched payload with multiple messages (#255)
+            const batchedReq = {
+                body: {
+                    object: 'whatsapp_business_account',
+                    entry: [
+                        {
+                            changes: [
+                                {
+                                    value: {
+                                        messages: [
+                                            { id: 'm1', from: '2348000000001', text: { body: 'BALANCE' } },
+                                            { id: 'm2', from: '2348000000001', text: { body: 'SEND 10 @bob' } },
+                                        ],
+                                    },
+                                },
+                            ],
+                        },
+                    ],
+                },
+            };
+            expect(extractAllMessageDetails(batchedReq)).toEqual([
+                { phoneNumber: '2348000000001', commandText: 'BALANCE', messageId: 'm1' },
+                { phoneNumber: '2348000000001', commandText: 'SEND 10 @bob', messageId: 'm2' },
+            ]);
         });
     });
 
