@@ -1,7 +1,11 @@
 import { Request, Response } from 'express';
 import { authService } from '../services/auth.service';
+import { authRateLimiter, challengeAccountRateLimiter } from '../middleware/rateLimit.middleware';
 
-export const getChallenge = (req: Request, res: Response) => {
+export const getChallenge = [
+    authRateLimiter,
+    challengeAccountRateLimiter,
+    (req: Request, res: Response) => {
     try {
         const { account } = req.query;
 
@@ -16,9 +20,12 @@ export const getChallenge = (req: Request, res: Response) => {
         console.error('Error generating challenge:', error);
         res.status(500).json({ error: 'Internal server error' });
     }
-};
+    },
+];
 
-export const getToken = async (req: Request, res: Response) => {
+export const getToken = [
+    authRateLimiter,
+    async (req: Request, res: Response) => {
     try {
         const { transaction } = req.body;
 
@@ -33,4 +40,5 @@ export const getToken = async (req: Request, res: Response) => {
         console.error('Error verifying challenge:', error);
         res.status(401).json({ error: error.message || 'Invalid challenge transaction' });
     }
-};
+    },
+];
