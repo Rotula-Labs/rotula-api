@@ -1,5 +1,9 @@
 const inFlightSecrets = new Set<Buffer>();
 
+export function inFlightSecretCount(): number {
+    return inFlightSecrets.size;
+}
+
 export function registerSecret(buffer: Buffer): void {
     inFlightSecrets.add(buffer);
 }
