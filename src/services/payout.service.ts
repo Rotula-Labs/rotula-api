@@ -379,6 +379,8 @@ export class PayoutService {
                 currentPayoutIndex: 0,
                 deadlineExtensionsUsed: 0,
                 payoutOrderLockedAt: null,
+                currentCycleStart: null,
+                currentCycleEnd: null,
             },
         });
 
