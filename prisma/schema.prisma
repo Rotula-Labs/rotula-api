@@ -59,6 +59,7 @@ model SavingsGroup {
   createdAt              DateTime         @default(now())
   updatedAt              DateTime         @updatedAt
   members                GroupMember[]
+  contributions          Contribution[]
   Payout                 Payout[]
   PayoutOrderLog         PayoutOrderLog[]
   MemberExitLog          MemberExitLog[]
@@ -86,6 +87,9 @@ model Contribution {
   id              String   @id @default(uuid())
   user            User     @relation(fields: [userId], references: [id])
   userId          String
+  // Foreign key to SavingsGroup. onDelete: Restrict matches the other group
+  // relations so a group cannot be deleted while contributions reference it.
+  group           SavingsGroup @relation(fields: [groupId], references: [id], onDelete: Restrict)
   groupId         String
   amount          Decimal
   transactionHash String?
@@ -100,6 +104,9 @@ model Payout {
   id              String       @id @default(uuid())
   group           SavingsGroup @relation(fields: [groupId], references: [id])
   groupId         String
+  // Foreign key to User. onDelete: Restrict refuses to delete a user that is
+  // still the recipient of a payout, preventing orphaned payout rows.
+  recipient       User         @relation(fields: [recipientId], references: [id], onDelete: Restrict)
   recipientId     String
   amount          Decimal
   transactionHash String
@@ -115,6 +122,8 @@ model PayoutOrderLog {
   id            String       @id @default(uuid())
   group         SavingsGroup @relation(fields: [groupId], references: [id])
   groupId       String
+  // changedBy is intentionally left unconstrained: this is an append-only
+  // audit log that must outlive the user it references, so no FK is added.
   changedBy     String
   previousOrder Json?
   newOrder      Json
@@ -161,6 +170,9 @@ model SecretAccessLog {
 /// auto-resolved — they must be reviewed and closed by an admin.
 model ReconciliationMismatch {
   id            String    @id @default(uuid())
+  // groupId and userId are intentionally left unconstrained: reconciliation
+  // records are append-only audit rows that must survive deletion of the
+  // group or user they describe, so no foreign keys are added here.
   groupId       String
   userId        String
   /// Amount returned by the Soroban contract's get_contribution() (in stroops)
@@ -183,6 +195,9 @@ model MemberExitLog {
   id               String       @id @default(uuid())
   group            SavingsGroup @relation(fields: [groupId], references: [id])
   groupId          String
+  // userId and initiatedBy are intentionally left unconstrained: this is an
+  // append-only audit log that must outlive the users it references, so no
+  // foreign keys are added for these columns.
   userId           String // the member who exited
   /// userId of who triggered the exit — the member themselves for LEAVE, the
   /// creator for KICK.
