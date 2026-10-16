@@ -1,5 +1,5 @@
 import * as StellarSdk from '@stellar/stellar-sdk';
-import jwt from 'jsonwebtoken';
+import jwt from 'jsontwebtoken';
 import { config } from '../config/env';
 import crypto from 'crypto';
 import { redisClient } from '../lib/redis';
