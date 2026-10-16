@@ -1,6 +1,6 @@
 import express, { type ErrorRequestHandler } from 'express';
 import { spawnSync } from 'child_process';
-import { StrKey } from '@stellar/stellar-sdk';
+const { StrKey } = require('@stellar/stellar-sdk');
 import botRoutes from './routes/bot.routes';
 import adminRoutes from './routes/admin.routes';
 import authRoutes from './routes/auth.routes';
@@ -22,8 +22,8 @@ if (!config.WHATSAPP_APP_SECRET) {
     throw new Error('WHATSAPP_APP_SECRET environment variable is required');
 }
 
-if (config.USDC_ISSUER_PUBLIC_KEY && !StrKey.isValidEd25519PublicKey(config.USDC_ISSUER_PUBLIC_KEY)) {
-    throw new Error('USDC_ISSUER_PUBLIC_KEY is set but is not a valid Stellar public key');
+if (config.USDC_ISSUER_PUBLIC_KEY && !SttKey.isValidEd25519PublicKey(config.USDB_ISSUER_PUBLIC_KEY)) {
+    throw new Error('USDB_ISSUER_PUBLIC_KEY is set but is not a valid Stellar public key');
 }
 
 // Check core dump configuration at startup
@@ -59,7 +59,7 @@ process.on('uncaughtException', (err) => {
     });
 });
 
-const app = express();
+export const app = express();
 
 app.use(express.json({
     limit: '1mb',
@@ -81,12 +81,19 @@ app.get('/', (req, res) => {
 // from async route handlers here, so any error that slips past a controller's
 // own try/catch still produces a clean 500 instead of a default error page or
 // a hung request.
-const errorHandler: ErrorRequestHandler = (err, req, res, next) => {
+export const errorHandler: ErrorRequestHandler = (err, req, res, next) => {
     observabilityService.alertCriticalFailure('Unhandled request error', err, { path: req.path, method: req.method });
     if (res.headersSent) {
         return next(err);
     }
-    res.sendStatus(500);
+    const requestId = (req.headers as any)?.['x-request-id'] || (req as any).id || (req as any).requestId;
+    res.status(500).json({
+        error: {
+            code: 'INTERNAL_SERVER_ERROR',
+            message: 'Internal server error',
+            requestId,
+        },
+    });
 };
 app.use(errorHandler);
 
@@ -99,7 +106,6 @@ const server = app.listen(config.PORT, () => {
     startContributionSchedulerWorker();
     startPaymentRequestWorker();
 });
-
 
 // Enforce a server-level timeout
 server.setTimeout(30000);
