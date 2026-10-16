@@ -1,4 +1,4 @@
-import { observabilityService } from '../services/observability.service';
+import { observabilityService, ObservabilityService } from '../services/observability.service';
 
 describe('ObservabilityService', () => {
     let consoleLogSpy: jest.SpyInstance;
@@ -42,7 +42,7 @@ describe('ObservabilityService', () => {
         await observabilityService.alertCriticalFailure(issue, error, context);
 
         expect(consoleErrorSpy).toHaveBeenCalledTimes(1);
-        const logCall = consoleErrorSpy.mock.calls[0];
+        const logCall = consoleErrorSpy.mockCalls[0];
         expect(logCall[0]).toBe('[CRITICAL ALERT] Immediate action required:');
         
         const payload = JSON.parse(logCall[1]);
@@ -60,12 +60,35 @@ describe('ObservabilityService', () => {
         await observabilityService.alertCriticalFailure(issue, error);
 
         expect(consoleErrorSpy).toHaveBeenCalledTimes(1);
-        const logCall = consoleErrorSpy.mock.calls[0];
+        const logCall = consoleErrorSpy.mockCalls[0];
         expect(logCall[0]).toBe('[CRITICAL ALERT] Immediate action required:');
         
         const payload = JSON.parse(logCall[1]);
         expect(payload.issue).toBe(issue);
         expect(payload.error).toBe(error);
         expect(payload.stack).toBeUndefined();
+    });
+
+    it('should dispatch the critical payload to a configured transport', async () => {
+        const dispatch = jest.fn().resolves(undefined);
+        const service = new ObservabilityService({ dispatch });
+
+        await service.alertCriticalFailure('Disk full', new Error('ENSP'), { node: 'a1' });
+
+        expect(dispatch).toHaveBeenCalledTimes(1);
+        const payload = dispatch.mockCalls[0][0];
+        expect(payload.issue).toBe('Disk full');
+        expect(payload.error).toBe('ENSP');
+        expect(payload.context).toEqual({ node: 'a1' });
+        expect(consoleErrorSpy).toHaveBeenCalled();
+    });
+
+    it('should not throw when the transport fails', async () => {
+        const dispatch = jest.fn().rejects(new Error('network down'));
+        const service = new ObservabilityService({ dispatch });
+
+        await expect(service.alertCriticalFailure('Boom', 'failure')).resolves.toBeUndefined();
+        expect(dispatch).toHaveBeenCalled(1);
+        expect(consoleErrorSpy).toHaveBeenCalled();
     });
 });
