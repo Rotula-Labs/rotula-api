@@ -39,6 +39,15 @@ export function getCronPattern(frequency: string): string {
     }
 }
 
+export function isSupportedFrequency(frequency: string): boolean {
+    try {
+        getCronPattern(frequency);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
 export async function scheduleGroupCycle(groupId: string, frequency: string): Promise<string | null> {
     if (redisClient.status !== 'ready') {
         console.warn('Redis is down, unable to schedule group cycle immediately. Retrying on next startup.');
