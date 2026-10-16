@@ -86,7 +86,7 @@ The backend is a coordinator, not proof that a transfer has settled. A transacti
 
 | Tool                | Version / Notes                                                         | Install                                                 |
 | ------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------- |
-| **Node.js**         | 20 or newer, with npm                                                   | https://nodejs.org                                      |
+| **Node.js**         | 20, 22, or 24 (tested in CI), with npm                                  | https://nodejs.org                                      |
 | **PostgreSQL**      | a running instance for Prisma migrations and data-backed flows          | https://www.postgresql.org                              |
 | **Redis**           | a running instance for BullMQ queues and workers                        | https://redis.io                                        |
 | **Stellar Testnet** | a Soroban RPC endpoint and a funded deployer identity for contract work | `stellar keys generate <name> --network testnet --fund` |
@@ -98,6 +98,8 @@ node --version
 psql --version
 redis-server --version
 ```
+
+The CI `test` job runs the suite on Node.js 20, 22, and 24; the highest version in that matrix is the newest runtime the project is verified against.
 
 ## Development setup
 
