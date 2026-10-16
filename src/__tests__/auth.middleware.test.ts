@@ -81,4 +81,43 @@ describe('requireAuth middleware', () => {
         expect(res.status).not.toHaveBeenCalled();
         expect(res.json).not.toHaveBeenCalled();
     });
+
+    it('responds 401 without calling next when the token has no sub claim', () => {
+        const token = jwt.sign({}, JWT_SECRET);
+        const req = makeRequest(`Bearer ${token}`);
+        const res = makeResponse();
+
+        requireAuth(req, res, next);
+
+        expect(res.status).toHaveBeenCalledWith(401);
+        expect(res.json).toHaveBeenCalledWith({ error: 'Invalid or expired token' });
+        expect(next).not.toHaveBeenCalled();
+        expect(req.account).toBeUndefined();
+    });
+
+    it('responds 401 without calling next when the sub claim is not a string', () => {
+        const token = jwt.sign({ sub: 12345 }, JWT_SECRET);
+        const req = makeRequest(`Bearer ${token}`);
+        const res = makeResponse();
+
+        requireAuth(req, res, next);
+
+        expect(res.status).toHaveBeenCalledWith(401);
+        expect(res.json).toHaveBeenCalledWith({ error: 'Invalid or expired token' });
+        expect(next).not.toHaveBeenCalled();
+        expect(req.account).toBeUndefined();
+    });
+
+    it('responds 401 without calling next when the sub claim is an empty string', () => {
+        const token = jwt.sign({ sub: '' }, JWT_SECRET);
+        const req = makeRequest(`Bearer ${token}`);
+        const res = makeResponse();
+
+        requireAuth(req, res, next);
+
+        expect(res.status).toHaveBeenCalledWith(401);
+        expect(res.json).toHaveBeenCalledWith({ error: 'Invalid or expired token' });
+        expect(next).not.toHaveBeenCalled();
+        expect(req.account).toBeUndefined();
+    });
 });
