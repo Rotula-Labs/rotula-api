@@ -31,13 +31,14 @@ so it is built to fail gracefully and never drop a message silently.
 
 * `process.on('unhandledRejection')` logs any rejection that still escapes a
   handler, worker, or timer.
-* `process.on('uncaughtException')` logs and exits so the orchestrator can
-  restart the process with clean state.
+* `process.on('uncaughtException')` logs and exits so the orchestrator
+  restarts the process with clean state.
 * Express error-handling middleware turns any error forwarded from an async
   route handler into a clean `500`.
 
 ### Tests
 
-Reliability behaviour is covered in `src/__tests__/bot.controller.test.ts`
-(malformed payloads, enqueue failure, and enqueue timeout), with 100% coverage
-of `src/controllers/bot.controller.ts`.
+Reliability behaviour is covered in `src/__tests__/bot.controller.test.ts`,
+which asserts malformed payload handling, enqueue failure, and enqueue
+timeout behaviour. To generate a coverage number on demand, run `npm test
+-- --coverage`; the report is produced by Jest and is not claimed in this doc.
