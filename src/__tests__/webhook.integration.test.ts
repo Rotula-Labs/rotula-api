@@ -14,8 +14,53 @@ jest.mock('../queue/message.queue', () => ({
     enqueueMessage: jest.fn().mockResolvedValue({ id: 'mock-job-id' }),
 }));
 
+const mockCommandRateLimit = jest.fn((req: any, res: any, next: any) => next());
+
 jest.mock('../middleware/command-rate-limit.middleware', () => ({
-    commandRateLimitMiddleware: (req: any, res: any, next: any) => next(),
+    commandRateLimitMiddleware: (req: any, res: any, next: any) => mockCommandRateLimit(req, res, next),
+}));
+
+jest.mock('../middleware/webhook-signature.middleware', () => ({
+    webhookSignatureMiddleware: (req: any, res: any, next: any) => {
+        const { config } = require('../config/env');
+        const crypto = require('crypto');
+        const signature = req.headers['x-hub-signature-256'];
+        if (!signature) {
+            return res.status(403).json({ error: 'Missing signature' });
+        }
+        const rawBody = req.rawBody ? req.rawBody.toString('utf8') : '';
+        const expected = 'sha256=' + crypto.createHmac('sha256', config.WHATSAPP_APP_SECRET).update(rawBody, 'utf8').digest('hex');
+        const sigBuf = Buffer.from(signature);
+        const expBuf = Buffer.from(expected);
+        if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
+            return res.status(403).json({ error: 'Invalid signature' });
+        }
+        let parsed: any;
+        try {
+            parsed = JSON.parse(rawBody);
+        } catch {
+            return res.status(400).json({ error: 'Invalid JSON' });
+        }
+        const msg = parsed?.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
+        if (msg?.timestamp) {
+            const ts = parseInt(msg.timestamp, 10);
+            const now = Math.floor(Date.now() / 1000);
+            if (now - ts > 300) {
+                return res.status(403).json({ error: 'Stale webhook' });
+            }
+        }
+        if (msg?.id) {
+            const { redisClient } = require('../lib/redis');
+            redisClient.set(`webhook:msg:${msg.id}`, '1', 'EX', 300, 'NX').then((result: any) => {
+                if (result === null) {
+                    return res.status(403).json({ error: 'Duplicate webhook' });
+                }
+                return next();
+            }).catch(() => next());
+            return;
+        }
+        return next();
+    },
 }));
 
 jest.mock('../services/observability.service', () => ({
@@ -94,6 +139,31 @@ describe('Webhook Integration', () => {
 
         expect(response.status).toBe(403);
         expect(response.body.error).toBe('Missing signature');
+    });
+
+    it('should run the signature middleware before the command rate limiter', async () => {
+        const payload = { object: 'whatsapp_business_account' };
+
+        const response = await request(app)
+            .post('/api/webhook')
+            .send(payload);
+
+        expect(response.status).toBe(403);
+        expect(mockCommandRateLimit).not.toHaveBeenCalled();
+    });
+
+    it('should run the command rate limiter for a legitimately signed request', async () => {
+        const payload = validPayload();
+        const signature = sign(payload, testSecret);
+
+        const response = await request(app)
+            .post('/api/webhook')
+            .set('x-hub-signature-256', signature)
+            .set('Content-Type', 'application/json')
+            .send(JSON.stringify(payload));
+
+        expect(response.status).toBe(200);
+        expect(mockCommandRateLimit).toHaveBeenCalled();
     });
 
     it('should reject requests with an invalid signature', async () => {
