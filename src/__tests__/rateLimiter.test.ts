@@ -3,6 +3,7 @@ import {
     commandRateLimitMiddleware,
     setForceRedisFailure,
     clearInMemoryStore,
+    getInMemoryStoreSize,
     classifyCommand,
     extractMessageDetails,
 } from '../middleware/command-rate-limit.middleware';
@@ -336,6 +337,75 @@ describe('Sliding Window Rate Limiter & Abuse Detection', () => {
             const nextSpyB = jest.fn();
             await commandRateLimitMiddleware(reqUserB, res, nextSpyB);
             expect(nextSpyB).toHaveBeenCalled(); // Allowed!
+        });
+
+        it('should not grow the in-memory store unbounded across many distinct keys', async () => {
+            for (let i = 0; i < 500; i++) {
+                const distinctReq = {
+                    body: {
+                        object: 'whatsapp_business_account',
+                        entry: [
+                            {
+                                changes: [
+                                    {
+                                        value: {
+                                            messages: [
+                                                {
+                                                    from: `distinct_user_${i}`,
+                                                    text: { body: 'HELP' },
+                                                },
+                                            ],
+                                        },
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                } as any;
+                await commandRateLimitMiddleware(distinctReq, res, next);
+            }
+
+            expect(getInMemoryStoreSize()).toBeLessThanOrEqual(500);
+        });
+
+        it('should remove entries whose timestamps have all expired', async () => {
+            const phoneNumber = 'expired_user';
+            const expiredReq = {
+                body: {
+                    object: 'whatsapp_business_account',
+                    entry: [
+                        {
+                            changes: [
+                                {
+                                    value: {
+                                        messages: [
+                                            {
+                                                from: phoneNumber,
+                                                text: { body: 'HELP' },
+                                            },
+                                        ],
+                                    },
+                                },
+                            ],
+                        },
+                    ],
+                },
+            } as any;
+
+            await commandRateLimitMiddleware(expiredReq, res, next);
+            expect(getInMemoryStoreSize()).toBe(1);
+
+            // Advance time beyond the general tier window (60s)
+            const realNow = Date.now;
+            const base = realNow();
+            Date.now = () => base + 61_000;
+            try {
+                await commandRateLimitMiddleware(expiredReq, res, next);
+                // The old entry should have been pruned; only the fresh entry remains
+                expect(getInMemoryStoreSize()).toBe(1);
+            } finally {
+                Date.now = realNow;
+            }
         });
     });
 

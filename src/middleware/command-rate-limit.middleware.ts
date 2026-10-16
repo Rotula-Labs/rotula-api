@@ -12,6 +12,16 @@ export type CommandTier = 'FINANCIAL' | 'READ' | 'GENERAL';
 // In-memory store for rate limiting fallback when Redis is down
 const inMemoryStore = new Map<string, number[]>();
 
+// Maximum number of distinct keys retained in the in-memory fallback store.
+// When exceeded, the least-recently-used entry is evicted to bound memory growth.
+const IN_MEMORY_STORE_MAX_SIZE = 10000;
+
+// Periodic sweep interval to drop entries whose timestamps have all expired.
+const IN_MEMORY_SWEEP_INTERVAL_MS = 60 * 1000;
+
+// Track the largest window seen so the sweep can safely evict stale entries.
+let maxObservedWindowMs = 60 * 1000;
+
 // Toggling mechanism for testing Redis failure scenarios
 let forceRedisFailure = false;
 
@@ -21,6 +31,46 @@ export function setForceRedisFailure(val: boolean) {
 
 export function clearInMemoryStore() {
     inMemoryStore.clear();
+}
+
+/**
+ * Exposes the current size of the in-memory fallback store for tests.
+ */
+export function getInMemoryStoreSize(): number {
+    return inMemoryStore.size;
+}
+
+/**
+ * Removes entries whose timestamps have all expired, and enforces the size cap
+ * by evicting the least-recently-used entries (Map preserves insertion order).
+ */
+function sweepInMemoryStore(now: number = Date.now()): void {
+    const cutoff = now - maxObservedWindowMs;
+    for (const [key, timestamps] of inMemoryStore) {
+        if (timestamps.length === 0 || timestamps[timestamps.length - 1] <= cutoff) {
+            inMemoryStore.delete(key);
+        }
+    }
+
+    while (inMemoryStore.size > IN_MEMORY_STORE_MAX_SIZE) {
+        const oldestKey = inMemoryStore.keys().next().value;
+        if (oldestKey === undefined) break;
+        inMemoryStore.delete(oldestKey);
+    }
+}
+
+// Periodic sweep so the fallback map cannot grow without bound while Redis is down.
+const inMemorySweepTimer = setInterval(() => {
+    try {
+        sweepInMemoryStore();
+    } catch (err) {
+        console.error('Failed to sweep in-memory rate limit store:', err);
+    }
+}, IN_MEMORY_SWEEP_INTERVAL_MS);
+
+// Do not keep the process alive solely for the sweep timer.
+if (typeof inMemorySweepTimer.unref === 'function') {
+    inMemorySweepTimer.unref();
 }
 
 /**
