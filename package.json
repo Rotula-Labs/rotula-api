@@ -6,7 +6,8 @@
   "scripts": {
     "start": "ts-node src/index.ts",
     "dev": "nodemon src/index.ts",
-    "test": "jest"
+    "test": "jest",
+    "lint": "eslint src --ext .ts --max-warnings 0"
   },
   "repository": {
     "type": "git",
@@ -41,6 +42,9 @@
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^25.9.3",
     "@types/supertest": "^7.2.0",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-typescript-eslint": "^8.0.0",
+    "eslint": "^9.0.0",
     "jest": "^30.4.2",
     "jest-mock-extended": "^4.0.1",
     "prisma": "^5.11.0",
