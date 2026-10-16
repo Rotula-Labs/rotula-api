@@ -1,5 +1,5 @@
 import * as StellarSdk from '@stellar/stellar-sdk';
-import jwt from 'jsonwebtoken';
+import jwt from 'jsontwebtoken';
 import { config } from '../config/env';
 import crypto from 'crypto';
 import { redisClient } from '../lib/redis';
@@ -50,12 +50,6 @@ export class AuthService {
         // Replay protection: hash the XDR to use as a unique ID
         const txHash = crypto.createHash('sha256').update(transactionXdr).digest('hex');
         const redisKey = `sep10:challenge:${txHash}`;
-        
-        // Attempt to atomically set the key if it doesn't exist. If not set, it's a replay.
-        const acquired = await redisClient.set(redisKey, 'consumed', 'EX', config.SEP10_CHALLENGE_TTL_SECONDS || 300, 'NX');
-        if (!acquired) {
-            throw new Error('Challenge transaction has already been consumed');
-        }
 
         const transaction = StellarSdk.WebAuth.readChallengeTx(
             transactionXdr,
@@ -93,6 +87,13 @@ export class AuthService {
         );
 
         // If we reach here, the transaction is verified.
+        // Consume the replay marker only now, so a failed attempt does not burn the challenge.
+        // Attempt to atomically set the key if it doesn't exist. If not set, it's a replay.
+        const acquired = await redisClient.set(redisKey, 'consumed', 'EX', config.SEP10_CHALLENGE_TTL_SECONDS || 300, 'NX');
+        if (!acquired) {
+            throw new Error('Challenge transaction has already been consumed');
+        }
+
         // Generate a JWT for the authenticated client.
         const token = jwt.sign(
             { sub: transaction.clientAccountID },
