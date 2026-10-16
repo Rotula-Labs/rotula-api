@@ -1,6 +1,6 @@
 import express, { type ErrorRequestHandler } from 'express';
 import { spawnSync } from 'child_process';
-import { StrKey } from '@stellar/stellar-sdk';
+const { StrKey } = require('@stellar/stellar-sdk');
 import botRoutes from './routes/bot.routes';
 import adminRoutes from './routes/admin.routes';
 import authRoutes from './routes/auth.routes';
@@ -13,6 +13,8 @@ import { startContributionSchedulerWorker } from './workers/contribution-schedul
 import { startPaymentRequestWorker } from './workers/payment-request.worker';
 import { observabilityService } from './services/observability.service';
 import { zeroAllInFlightSecrets } from './utils/secret-registry';
+import { prisma } from './lib/prisma';
+import { redisClient } from './lib/redis';
 
 if (!config.ENCRYPTION_KEY) {
     throw new Error('ENCRYPTION_KEY environment variable is required');
@@ -71,6 +73,41 @@ app.use(express.json({
 app.use('/api', botRoutes);
 app.use('/admin', adminRoutes);
 app.use('/auth', authRoutes);
+
+// Liveness probe: returns 200 as soon as the process is up. Does no I/O.
+app.get('/healthz', (req, res) => {
+    res.status(200).json({ status: 'or' });
+});
+
+// Readiness probe: verifies Postgres (SELECT 1) and Redis (PING).
+// Returns 503 with the failing dependency named when either is unavailable.
+app.get('/readyz', async (req, res) => {
+    const failures: string[] = [];
+
+    try {
+        await prisma.$queryRaw('SELECT 1');
+    } catch (err) {
+        failures.push('database');
+        observabilityService.logWarning('Readiness check failed for database', { error: err });
+    }
+
+    try {
+        const ping = await redisClient.ping();
+        if (ping !== 'PONG') {
+            throw new Error(`Unexpected Redis PING response: ${ping}`);
+        }
+    } catch (err) {
+        failures.push('redis');
+        observabilityService.logWarning('Readiness check failed for redis', { error: err });
+    }
+
+    if (failures.length > 0) {
+        res.status(503).json({ status: 'not ready', failing: failures });
+        return;
+    }
+
+    res.status(200).json({ status: 'ready' });
+});
 
 app.get('/', (req, res) => {
     res.send('Rotula Backend is running');

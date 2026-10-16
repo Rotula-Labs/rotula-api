@@ -4,3 +4,7 @@ import { applyEncryptionMiddleware } from '../middleware/prisma-encryption.middl
 export const prisma = new PrismaClient();
 
 applyEncryptionMiddleware(prisma);
+
+export async function checkPrismaConnection(): Promise<void> {
+  await prisma.$queryRaw`SELECT 1`;
+}
