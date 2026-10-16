@@ -6,6 +6,7 @@ import { PayoutService } from '../services/payout.service';
 import { enqueueDelayedReminder, enqueueCycleEnd } from '../queue/contribution-scheduler.queue';
 import { redisClient } from '../lib/redis';
 import { applyEncryptionMiddleware } from '../middleware/prisma-encryption.middleware';
+import { broadcastToGroupMembers } from '../services/payout.service';
 
 const prisma = new PrismaClient();
 applyEncryptionMiddleware(prisma);
@@ -98,17 +99,11 @@ async function handleCycleStart(job: Job, whatsappService: WhatsAppService) {
     await enqueueCycleEnd(groupId, timeUntilEnd);
 
     // Initial reminder - nobody has contributed yet in this new cycle
-    for (const member of group.members) {
-        if (!member.user.phoneNumber) continue;
-        
-        const message = `A new cycle for ${group.name} has started! Please contribute your required amount of ${group.contributionAmount} XLM by ${currentCycleEnd.toDateString()}.`;
-        
-        try {
-            await whatsappService.sendMessage(member.user.phoneNumber, message);
-        } catch (e) {
-            console.error(`Failed to send initial reminder to ${member.user.phoneNumber}`);
-        }
-    }
+    const message = `A new cycle for ${group.name} has started! Please contribute your required amount of ${group.contributionAmount} XLM by ${currentCycleEnd.toDateString()}.`;
+    await broadcastToGroupMembers(groupId, message, {
+        whatsappService,
+        filter: () => true,
+    });
 }
 
 async function handleLastCallReminder(job: Job, whatsappService: WhatsAppService) {
