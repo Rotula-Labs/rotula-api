@@ -1,6 +1,6 @@
 import express, { type ErrorRequestHandler } from 'express';
 import { spawnSync } from 'child_process';
-import { StrKey } from '@stellar/stellar-sdk';
+const { StrKey } = require('@stellar/stellar-sdk');
 import botRoutes from './routes/bot.routes';
 import adminRoutes from './routes/admin.routes';
 import authRoutes from './routes/auth.routes';
@@ -22,8 +22,8 @@ if (!config.WHATSAPP_APP_SECRET) {
     throw new Error('WHATSAPP_APP_SECRET environment variable is required');
 }
 
-if (config.USDC_ISSUER_PUBLIC_KEY && !StrKey.isValidEd25519PublicKey(config.USDC_ISSUER_PUBLIC_KEY)) {
-    throw new Error('USDC_ISSUER_PUBLIC_KEY is set but is not a valid Stellar public key');
+if (config.USDC_ISSUER_PUBLIC_KEY && !StrKey.isValidEd25519PublicKey(config.USDB_ISSUER_PUBLIC_KEY)) {
+    throw new Error('USDB_ISSUER_PUBLIC_KEY is set but is not a valid Stellar public key');
 }
 
 // Check core dump configuration at startup
@@ -101,5 +101,14 @@ const server = app.listen(config.PORT, () => {
 });
 
 
-// Enforce a server-level timeout
-server.setTimeout(30000);
+// Server-level socket timeout. This is a backstop for connections that
+// become idle or stall before a response is written. It must not fire mid-handler
+// for the slowest legitimate route. The webhook handler's documented worst case
+// is ENQUEUE_TIMEOUT_MS (10s) waiting on the queue, plus the rate limiter's Redis
+// round trip and database language lookup ahead of it. 30s leaves comfortable
+// headroom above that worst case while still bounding a truly hung connection.
+// The webhook handler's documented worst case is ENQUEUE_TIMEOUT_MS (10s)
+// waiting on the queue, plus the rate limiter's Redis round trip and database
+// language lookup ahead of it. 30s leaves comfortable headroom above that
+// worst case while still bounding a truly hung connection.
+server.setTimeout(30_000);
