@@ -154,7 +154,7 @@ Every value above is a placeholder in your own configuration; none is committed.
 - Contract deployment, member lifecycle, contribution handling, and payout orchestration are still being aligned with the current Soroban ABI.
 - The contract code has a Stellar Testnet deployment for review, but no savings group has been initialized. This is not an active savings service.
 - Asset denomination is inconsistent: the product brief targets USDC, while implemented payment and command paths include XLM. Contract amounts are integer base units and require exact asset decimal handling.
-- Some user-facing operations, including group withdrawal, are marked or implemented as mocked. A success message in a command path is not evidence of an on-chain transfer.
+- Group withdrawal is explicitly unimplemented. `handleWithdraw` in `src/services/message-processor.service.ts` responds that withdrawal is unavailable and does not perform or claim an on-chain transfer. A success message in a command path is not evidence of an on-chain transfer.
 - Platform-managed wallet signing material is encrypted at rest in the current design. Rotula is not currently a self-custody wallet product; key custody and operational safeguards remain part of product and security work.
 
 Use Stellar Testnet for development. Do not use production keys or describe the service as ready to custody funds or run real savings circles.

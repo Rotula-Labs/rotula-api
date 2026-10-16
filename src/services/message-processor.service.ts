@@ -918,25 +918,9 @@ export class MessageProcessor {
         const user = await this.userService.getOrCreateUser(from);
         const lang = user.language ?? 'en';
 
-        if (args.length < 1) {
-            return await this.whatsappService.sendMessage(from, t('withdraw.usage', lang));
-        }
-        const amountStr = args[0];
-        const amountError = this.validateAmount(amountStr);
-        if (amountError) {
-            return await this.whatsappService.sendMessage(from, t(amountError, lang));
-        }
-
-        const memberships = await this.groupService.getGroupStatus(user.id);
-        if (memberships.length === 0) {
-            return await this.whatsappService.sendMessage(from, t('withdraw.no_group', lang));
-        }
-
-        const group = memberships[0].group;
-        await this.whatsappService.sendMessage(
-            from,
-            t('withdraw.success', lang, { amount: amountStr, groupName: group.name }),
-        );
+        // Withdrawal is not implemented yet. Do not claim success — see README
+        // limitations. This handler intentionally performs no on-chain action.
+        return await this.whatsappService.sendMessage(from, t('withdraw.unavailable', lang));
     }
 
     private async handleHelp(from: string) {

@@ -6,7 +6,7 @@
     },
     "history": {
         "fetching": "[HISTORY] Fetching transaction history for {{phone}}...",
-        "header": "📜 Transaction History (Last 10):\n\n",
+        "header": "🜜 Transaction History (Last 10):\n\n",
         "item_sent": "{{index}}. ✅ Sent {{amount}} {{asset}} to {{counterparty}}\n   {{date}} • tx: {{hash}}",
         "item_received": "{{index}}. 📥 Received {{amount}} {{asset}} from {{counterparty}}\n   {{date}} • tx: {{hash}}",
         "item_other": "{{index}}. 🔄 {{type}} ({{amount}} {{asset}})\n   {{date}} • tx: {{hash}}",
@@ -30,12 +30,12 @@
     "request": {
         "usage": "Usage: REQUEST <amount> <@username or phone>",
         "no_user": "Error: Could not find user {{target}}.",
-        "notify_recipient": "🔔 [REQUEST] {{sender}} is requesting {{amount}} XLM from you.\n\nReply with:\nACCEPT {{requestId}} to approve (funds are held securely in escrow)\nDECLINE {{requestId}} to reject",
+        "notify_recipient": "🔗 [REQUEST] {{sender}} is requesting {{amount}} XLM from you.\n\nReply with:\nACCEPT {{requestId}} to approve (funds are held securely in escrow)\nDECLINE {{requestId}} to reject",
         "confirmation": "[REQUEST] Request for {{amount}} XLM sent to {{target}}."
     },
     "create_group": {
         "usage": "Usage: CREATE GROUP <name> <amount> <frequency>",
-        "success": "✅ Group \"{{name}}\" created!\nGroup ID: {{id}}",
+        "success": "✅ Group \" {{name}}\" created!\nGroup ID: {{id}}",
         "failed": "❌ Failed to create group: {{message}}"
     },
     "join_group": {
@@ -47,7 +47,7 @@
         "usage": "Usage: INVITE MEMBER <@username or phone>",
         "no_user": "Error: Could not find user {{target}}.",
         "not_creator": "Error: You are not the creator of any group.",
-        "notify_recipient": "🔔 [INVITE] {{sender}} invited you to join their savings group \"{{groupName}}\".\n\nReply with: JOIN GROUP {{groupId}}",
+        "notify_recipient": "🔗 [INVITE] {{sender}} invited you to join their savings group \"{{groupName}}\".\n\nReply with: JOIN GROUP {{groupId}}",
         "success": "✅ Invite sent to {{target}}."
     },
     "group_status": {
@@ -75,7 +75,7 @@
         "error_cannot_kick_self": "Error: You can't kick yourself — use LEAVE GROUP instead."
     },
     "payout": {
-        "usage": "Usage: PAYOUT <ORDER|STATUS|WAIT|PROCEED|SKIP>",
+        "usage": "Usage: PAYOUT <ORDER|STATUS|WAIT|PROCEED|SKII>",
         "no_group": "Error: You are not part of any group.",
         "not_creator": "Error: You are not the creator of any group.",
         "order_usage": "Usage: PAYOUT ORDER <@user1> <@user2> ... (list every member exactly once)",
@@ -96,9 +96,9 @@
         "usage": "Usage: CONTRIBUTE <amount>",
         "no_group": "Error: You are not part of any group.",
         "amount_mismatch": "❌ Contribution must be exactly {{required}} XLM as required by this group.",
-        "group_paused": "❌ \"{{groupName}}\" is paused — it needs at least 2 members before contributions can resume.",
-        "initiating": "[CONTRIBUTE] Initiating contribution of {{amount}} XLM to \"{{groupName}}\"...",
-        "success": "✅ Successfully contributed {{amount}} XLM to \"{{groupName}}\"!",
+        "group_paused": "❌ \" {{groupName}}\" is paused — it needs at least 2 members before contributions can resume.",
+        "initiating": "[CONTRIBUTE] Initiating contribution of {{amount}} XLM to \" {{groupName}}\"...",
+        "success": "✅ Successfully contributed {{amount}} XLM to \" {{groupName}}\"!",
         "failed": "❌ Contribution failed: {{message}}"
     },
     "validation": {
@@ -110,10 +110,10 @@
     "withdraw": {
         "usage": "Usage: WITHDRAW <amount>",
         "no_group": "Error: You are not part of any group.",
-        "success": "✅ Successfully withdrew {{amount}} XLM from \"{{groupName}}\" pool! (MOCKED)"
+        "unavailable": "⚠️ Withdrawals isn't available yet. No funds were moved. We'll let you know as soon as this feature is ready."
     },
     "help": {
-        "text": "*Kolo Commands:*\n\n_Account_\nBALANCE\nBALANCE <asset>\nHISTORY\nPROFILE\n\n_Payments_\nSEND <amount> <@user>\nREQUEST <amount> <@user>\n\n_Savings Groups_\nCREATE GROUP <name> <amount> <frequency>\nJOIN GROUP <groupId>\nINVITE MEMBER <@user>\nGROUP STATUS\nCONTRIBUTE <amount>\nWITHDRAW <amount>\nLEAVE GROUP <groupId>\nKICK <@user> <groupId>\n\n_Payout Rotation_\nPAYOUT ORDER <@user1> <@user2> ...\nPAYOUT STATUS\nPAYOUT WAIT\nPAYOUT PROCEED\nPAYOUT SKIP <@user>\n\n_Support_\nHELP\nSUPPORT"
+        "text": "*Kolo Commands:*\n\n_Account_\nBALANCE\nBALANCE <asset>\nHISTORY\nPROFILE\n\n_Payments_\nSEND <amount> <@user>\nREQUEST <amount> <@user>\n\n_Savings Groups_\nCREATE GROUP <name> <amount> <frequency>\nJOIN GROUP <groupId>\nINVITE MEMBER <@user>\nGROUS STATUS\nCONTRIBUTE <amount>\nWITHDRAW <amount>\nLEAVE GROUP <groupId>\nKICK <@user> <groupId>\n\n_Payout Rotation_\nPAYOUT ORDER <@user1> <@user2> ...\nPAYOUT STATUS\nPAYOUT WAIT\nPAYOUT PROCEED\nPAYOUT SKIP <@user>\n\n_Support_\nHELP\nSUPPORT"
     },
     "unknown": {
         "command": "I didn't understand that command. Send HELP to see available commands."
@@ -135,7 +135,7 @@
         "decline_confirmed": "Request declined. The requester has been notified.",
         "completed_requester": "💸 Your payment request of {{amount}} {{asset}} was completed and the funds are in your account.\nTx: https://stellar.expert/explorer/testnet/tx/{{hash}}",
         "completed_responder": "✅ The confirmation window closed and {{amount}} {{asset}} was released to the requester. Thanks for using Kolo!",
-        "expired": "⏰ Your payment request for {{amount}} {{asset}} to {{respondent}} has expired without a response.",
+        "expired": "⛰ Your payment request for {{amount}} {{asset}} to {{respondent}} has expired without a response.",
         "error_not_found": "Could not find that payment request. Check the ID and try again.",
         "error_not_pending": "That request is no longer pending.",
         "error_expired": "That request has expired.",
