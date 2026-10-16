@@ -23,6 +23,42 @@ jobs:
     - name: Run tests
       run: npm test
     timeout-minutes: 15
+  prisma:
+    name: Prisma schema and migration drift
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: shadow
+        ports:
+        - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20
+        cache: npm
+    - name: Install dependencies
+      run: npm ci
+    - name: Validate schema
+      run: npx prisma validate
+    - name: Check migration drift
+      env:
+        SHADOW_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/shadow
+      run: npx prisma migrate diff --from-migrations prisma/migrations --to-schema-datamodel prisma/schema.prisma --shadow-database-url "$SHADOW_DATABASE_URL" --exit-code
+    timeout-minutes: 15
 permissions:
   contents: read
 concurrency:
