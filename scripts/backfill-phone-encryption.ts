@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Prisma } from '@prisma/client';
 import { encryptField, hmacPhone, isEncryptedFieldBlob, decryptField } from '../src/utils/encryption.util';
 
 // Uses its own PrismaClient WITHOUT the encryption middleware so the script
@@ -11,7 +11,18 @@ function plaintextOf(storedValue: string): string {
     return isEncryptedFieldBlob(storedValue) ? decryptField(storedValue) : storedValue;
 }
 
-async function main() {
+type BackfillLogger = Pick<Console, 'log' | 'warn' | 'error'>;
+
+type UserDelegate = {
+    findMany: (args: Prisma.UserFindManyArgs) => Promise<Array<{ id: string; phoneNumber: string | null }>>;
+    updateMany: (args: Prisma.UserUpdateManyArgs) => Promise<{ count: number }>;
+};
+
+type BackfillPrisma = {
+    user: UserDelegate;
+};
+
+export async function backfill(prisma: BackfillPrisma, logger: BackfillLogger = console) {
     console.log('Starting phone number encryption backfill...');
 
     let cursor: string | undefined = undefined;
@@ -59,18 +70,18 @@ async function main() {
                 });
 
                 if (updated.count === 0) {
-                    console.warn(`Skipped user ${user.id}: phone number changed during backfill, will be picked up on re-run.`);
+                    logger.warn(`Skipped user ${user.id}: phone number changed during backfill, will be picked up on re-run.`);
                     raced++;
                 } else {
                     migrated++;
                 }
             } catch (error) {
-                console.error(`Failed to encrypt phone number for user ID: ${user.id}`, error);
+                logger.error(`Failed to encrypt phone number for user ID: ${user.id}`, error);
             }
         }
     } while (cursor);
 
-    console.log(`Backfill completed. Migrated ${migrated} phone numbers, skipped ${skipped} rows, raced ${raced}.`);
+    logger.log(`Backfill completed. Migrated ${migrated} phone numbers, skipped ${skipped} rows, raced ${raced}.`);
 }
 
 main()
