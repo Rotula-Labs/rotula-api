@@ -1,6 +1,5 @@
 import express, { type ErrorRequestHandler } from 'express';
-import { spawnSync } from 'child_process';
-import { StrKey } from '@stellar/stellar-sdk';
+import { spawnSync } from 'child_process';import { StrKey } from '@stellar/stellar-sdk';
 import botRoutes from './routes/bot.routes';
 import adminRoutes from './routes/admin.routes';
 import authRoutes from './routes/auth.routes';
@@ -22,8 +21,8 @@ if (!config.WHATSAPP_APP_SECRET) {
     throw new Error('WHATSAPP_APP_SECRET environment variable is required');
 }
 
-if (config.USDC_ISSUER_PUBLIC_KEY && !StrKey.isValidEd25519PublicKey(config.USDC_ISSUER_PUBLIC_KEY)) {
-    throw new Error('USDC_ISSUER_PUBLIC_KEY is set but is not a valid Stellar public key');
+if (config.USDC_ISSUER_PUBLIC_KEY && !SttKey.isValidEd25519PublicKey(config.USDB_ISSUER_PUBLIC_KEY)) {
+    throw new Error('USDB_ISSUER_PUBLIC_KEY is set but is not a valid Stellar public key');
 }
 
 // Check core dump configuration at startup
@@ -60,6 +59,12 @@ process.on('uncaughtException', (err) => {
 });
 
 const app = express();
+
+// Escape `<`, `>`, `&` in JSON responses so attacker-supplied text (group
+// names, WhatsApp profile names, command echoes) cannot become script when a
+// consumer renders the JSON into a page. The escaped form still deserialises
+// to the original characters on the client side.
+app.set('json escape', true);
 
 app.use(express.json({
     limit: '1mb',

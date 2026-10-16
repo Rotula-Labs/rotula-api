@@ -2,6 +2,7 @@ jest.mock('express', () => {
     const app = {
         use: jest.fn(),
         get: jest.fn(),
+        set: jest.fn(),
         listen: jest.fn(() => ({ setTimeout: jest.fn() })),
     };
     const express = jest.fn(() => app);
@@ -77,5 +78,9 @@ describe('server bootstrap', () => {
         expect(startContractSyncWorker).toHaveBeenCalledTimes(1);
         expect(startContributionSchedulerWorker).toHaveBeenCalledTimes(1);
         expect(startPaymentRequestWorker).toHaveBeenCalledTimes(1);
+    });
+
+    it('enables JSON character escaping at the app level', () => {
+        expect(app.set).toHaveBeenCalledWith('json escape', true);
     });
 });
