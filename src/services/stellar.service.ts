@@ -2,6 +2,7 @@ import * as StellarSdk from '@stellar/stellar-sdk';
 import { config } from '../config/env';
 import { encrypt, encryptBuffer } from '../utils/encryption.util';
 import { redisClient } from '../lib/redis';
+
 export interface GeneratedWallet {
     publicKey: string;
     encryptedSecret: string;
@@ -23,6 +24,16 @@ export class InsufficientReserveError extends Error {
     constructor() {
         super('Account does not have enough XLM to cover the trustline reserve.');
         this.name = 'InsufficientReserveError';
+    }
+}
+
+/**
+ * Error thrown when a caller requests an asset code that this service cannot resolve.
+ */
+export class UnsupportedAssetError extends Error {
+    constructor(assetCode: string) {
+        super(`Unsupported asset code: ${assetCode}`);
+        this.name = 'UnsupportedAssetError';
     }
 }
 
@@ -103,12 +114,17 @@ export class StellarService {
     }
 
     /**
-     * Sends a native XLM payment from one account to another and invalidates cached transaction history.
+     * Sends a payment from one account to another and invalidates cached transaction history.
+     * Defaults to native XLM when no assetCode is supplied. When assetCode is 'USDC', the
+     * issuer is resolved from config.USDC_ISSUER_PUBLIC_KEY. Any other asset code is rejected
+     * with an UnsupportedAssetError before the transaction is built or submitted.
      * Accepts a raw 32-byte Ed25519 seed Buffer (not a StrKey string) for secret lifetime minimization.
      */
-    public async sendPayment(sourceSecret: Buffer, destinationPublicKey: string, amount: string): Promise<any> {
+    public async sendPayment(sourceSecret: Buffer, destinationPublicKey: string, amount: string, assetCode: string = 'XLM', issuer?: string): Promise<any> {
         const sourceKeypair = StellarSdk.Keypair.fromRawEd25519Seed(sourceSecret);
         const sourceAccount = await this.server.loadAccount(sourceKeypair.publicKey());
+
+        const asset = this.resolveAsset(assetCode, issuer);
 
         const transaction = new StellarSdk.TransactionBuilder(sourceAccount, {
             fee: (await this.server.fetchBaseFee()).toString(),
@@ -116,7 +132,7 @@ export class StellarService {
         })
         .addOperation(StellarSdk.Operation.payment({
             destination: destinationPublicKey,
-            asset: StellarSdk.Asset.native(),
+            asset: asset,
             amount: amount,
         }))
         .setTimeout(30)
@@ -142,6 +158,30 @@ export class StellarService {
         }
 
         return result;
+    }
+
+    /**
+     * Resolves an asset code and optional issuer into a StellarSdk.Asset.
+     * 'XLM' (or 'native') maps to Asset.native(). 'USDC' resolves its issuer from
+     * config.USDC_ISSUER_PUBLIC_KEY (or an explicitly provided issuer). Any other
+     * asset code is rejected with an UnsupportedAssetError.
+     */
+    private resolveAsset(assetCode: string, issuer?: string): StellarSdk.Asset {
+        const normalized = (assetCode || 'XLM').toUpperCase();
+
+        if (normalized === 'XLM' || normalized === 'NATIVE') {
+            return StellarSdk.Asset.native();
+        }
+
+        if (normalized === 'USDC') {
+            const resolvedIssuer = issuer || config.USDC_ISSUER_PUBLIC_KEY;
+            if (!resolvedIssuer) {
+                throw new UnsupportedAssetError('USDC (missing USDC_ISSUER_PUBLIC_KEY)');
+            }
+            return new StellarSdk.Asset('USDC', resolvedIssuer);
+        }
+
+        throw new UnsupportedAssetError(assetCode);
     }
 
     /**

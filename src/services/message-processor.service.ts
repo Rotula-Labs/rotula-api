@@ -334,6 +334,8 @@ export class MessageProcessor {
         const senderWallet = JSON.parse(user.stellarWallet);
         let senderSecret: Buffer | null = null;
 
+        const assetCode = args[2] ? args[2].toUpperCase() : 'XLM';
+
         try {
             senderSecret = decrypt(senderWallet.encryptedSecret, senderWallet.iv, senderWallet.authTag, senderWallet.keyVersion || user.encryptionKeyVersion);
             registerSecret(senderSecret);
@@ -343,7 +345,7 @@ export class MessageProcessor {
                 from,
                 t('send.initiating', lang, { amount, target }),
             );
-            await this.stellarService.sendPayment(senderSecret, recipientPublicKey, amount);
+            await this.stellarService.sendPayment(senderSecret, recipientPublicKey, amount, assetCode);
             await this.whatsappService.sendMessage(
                 from,
                 t('send.success', lang, { amount, target }),
