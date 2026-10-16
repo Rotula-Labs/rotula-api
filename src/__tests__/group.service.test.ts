@@ -83,28 +83,28 @@ describe('GroupService', () => {
 
         it('should reject a zero contribution amount', async () => {
             await expect(groupService.createGroup('u1', 'Test Group', '0', 'WEEKLY')).rejects.toThrow(
-                'Contribution amount must be a positive number greater than zero.',
+                'validation.zero_amount',
             );
             expect(prismaClientMock.savingsGroup.create).not.toHaveBeenCalled();
         });
 
         it('should reject a negative contribution amount', async () => {
             await expect(groupService.createGroup('u1', 'Test Group', '-50', 'WEEKLY')).rejects.toThrow(
-                'Contribution amount must be a positive number greater than zero.',
+                'validation.invalid_format',
             );
             expect(prismaClientMock.savingsGroup.create).not.toHaveBeenCalled();
         });
 
         it('should reject a contribution amount with more than 7 decimal places', async () => {
             await expect(groupService.createGroup('u1', 'Test Group', '5.12345678', 'WEEKLY')).rejects.toThrow(
-                'Amount cannot have more than 7 decimal places.',
+                'validation.precision_exceeded',
             );
             expect(prismaClientMock.savingsGroup.create).not.toHaveBeenCalled();
         });
 
         it('should reject a contribution amount exceeding 1,000,000 XLM', async () => {
             await expect(groupService.createGroup('u1', 'Test Group', '2000000', 'WEEKLY')).rejects.toThrow(
-                'Amount exceeds the maximum allowed (1,000,000 XLM).',
+                'validation.exceeds_max',
             );
             expect(prismaClientMock.savingsGroup.create).not.toHaveBeenCalled();
         });
@@ -199,28 +199,28 @@ describe('GroupService', () => {
 
         it('should reject a zero contribution amount', async () => {
             await expect(groupService.addContribution('u1', 'g1', '0', 'hash123')).rejects.toThrow(
-                'Contribution amount must be a positive number greater than zero.',
+                'validation.zero_amount',
             );
             expect(prismaClientMock.contribution.create).not.toHaveBeenCalled();
         });
 
         it('should reject a negative contribution amount', async () => {
             await expect(groupService.addContribution('u1', 'g1', '-10', 'hash123')).rejects.toThrow(
-                'Contribution amount must be a positive number greater than zero.',
+                'validation.invalid_format',
             );
             expect(prismaClientMock.contribution.create).not.toHaveBeenCalled();
         });
 
         it('should reject a contribution amount with more than 7 decimal places', async () => {
             await expect(groupService.addContribution('u1', 'g1', '10.12345678', 'hash123')).rejects.toThrow(
-                'Amount cannot have more than 7 decimal places.',
+                'validation.precision_exceeded',
             );
             expect(prismaClientMock.contribution.create).not.toHaveBeenCalled();
         });
 
         it('should reject a contribution amount exceeding 1,000,000 XLM', async () => {
             await expect(groupService.addContribution('u1', 'g1', '1000001', 'hash123')).rejects.toThrow(
-                'Amount exceeds the maximum allowed (1,000,000 XLM).',
+                'validation.exceeds_max',
             );
             expect(prismaClientMock.contribution.create).not.toHaveBeenCalled();
         });
