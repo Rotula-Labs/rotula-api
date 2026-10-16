@@ -10,6 +10,29 @@ export type SupportedLanguage = typeof SUPPORTED_LANGUAGES[number];
 let initialised = false;
 
 /**
+ * Recursively flattens a nested locale object into a list of dot-separated
+ * relative-path keys (e.g. `{ a: { b: 'x' } }` -> `['a.b']`).
+ *
+ * @param {Record<string, any>} obj - The locale object to flatten.
+ * @param {string} [prefix] - The accumulated key prefix.
+ * @returns {string[]} The flattened list of keys.
+ */
+export function flattenLocaleKeys(
+    obj: Record<string, any>,
+    prefix = '',
+): string[] {
+    const keys: string[] = [];
+    for (const k in obj) {
+        if (typeof obj[k] === 'object' && obj[k] !== null) {
+            keys.push(...flattenLocaleKeys(obj[k], `${prefix}${k}.`));
+        } else {
+            keys.push(`${prefix}${k}`);
+        }
+    }
+    return keys;
+}
+
+/**
  * Initializes the i18next instance and its backend for dynamic locale loading.
  * Configures chokidar for hot-reloading in development and validates that
  * all supported language JSON files have the same keys as the primary English ('en') locale.
@@ -38,18 +61,7 @@ export async function initI18n(): Promise<void> {
     try {
         const enPath = path.join(localesDir, 'en.json');
         const enData = JSON.parse(fs.readFileSync(enPath, 'utf8'));
-        const checkKeys = (obj: any, prefix = '') => {
-            const keys: string[] = [];
-            for (const k in obj) {
-                if (typeof obj[k] === 'object' && obj[k] !== null) {
-                    keys.push(...checkKeys(obj[k], `${prefix}${k}.`));
-                } else {
-                    keys.push(`${prefix}${k}`);
-                }
-            }
-            return keys;
-        };
-        const enKeys = checkKeys(enData);
+        const enKeys = flattenLocaleKeys(enData);
         
         for (const lang of SUPPORTED_LANGUAGES) {
             if (lang === 'en') continue;
@@ -60,7 +72,7 @@ export async function initI18n(): Promise<void> {
                     continue;
                 }
                 const langData = JSON.parse(fs.readFileSync(langPath, 'utf8'));
-                const langKeys = new Set(checkKeys(langData));
+                const langKeys = new Set(flattenLocaleKeys(langData));
                 for (const key of enKeys) {
                     if (!langKeys.has(key)) {
                         console.warn(`[i18n] Missing key '${key}' in ${lang}.json`);
