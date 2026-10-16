@@ -109,6 +109,7 @@ model Payout {
 
   @@index([groupId])
   @@index([recipientId])
+  @@unique([groupId, recipientId, cycleNumber])
 }
 
 model PayoutOrderLog {
