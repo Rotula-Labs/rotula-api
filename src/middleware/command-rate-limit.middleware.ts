@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { prisma } from '../lib/prisma';
 import { redisClient } from '../lib/redis';
+import { config } from '../lib/config';
 import { WhatsAppService } from '../services/whatsapp.service';
 import { t, initI18n } from '../services/locale.service';
 import { abuseDetectionService } from '../services/abuse-detection.service';
@@ -180,15 +181,15 @@ export const commandRateLimitMiddleware = async (
 
     if (phoneNumber) {
         isUser = true;
-        rateLimitKey = `rate_limit:${phoneNumber}`;
+        rateLimitKey = `${config.redisKeyPrefix}rate_limit:${phoneNumber}`;
         if (commandText) {
             tier = classifyCommand(commandText);
-            rateLimitKey = `rate_limit:${tier}:${phoneNumber}`;
+            rateLimitKey = `${config.redisKeyPrefix}rate_limit:${tier}:${phoneNumber}`;
         }
     } else {
         // Fallback key: IP address (e.g. for GET requests / webhook verifications / API calls)
         const ip = req.ip || req.socket?.remoteAddress || 'unknown';
-        rateLimitKey = `rate_limit:ip:${ip}`;
+        rateLimitKey = `${config.redisKeyPrefix}rate_limit:ip:${ip}`;
     }
 
     // Map limits based on tier

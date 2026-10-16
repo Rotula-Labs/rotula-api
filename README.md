@@ -130,6 +130,7 @@ Copy the required values into a local `.env` (never committed). Grouped by area:
 | `PORT`                                                                              | Runtime  | HTTP port for the Express server                          |
 | `DATABASE_URL`                                                                      | Data     | PostgreSQL connection string used by Prisma               |
 | `REDIS_URL`                                                                         | Data     | Redis connection string for BullMQ queues and workers     |
+| `REDIS_KEY_PREFIX`                                                                  | Data     | Namespace prefix applied to every Redis key (per environment) |
 | `JWT_SECRET`                                                                        | Auth     | Signing secret for application sessions                   |
 | `HMAC_KEY`                                                                          | Security | Key for request/webhook integrity checks                  |
 | `ENCRYPTION_KEY`, `ENCRYPTION_KEY_V1..V3`                                           | Security | At-rest encryption keys for stored wallet material        |
@@ -146,6 +147,8 @@ Copy the required values into a local `.env` (never committed). Grouped by area:
 | `MAX_PAYOUT_DEADLINE_EXTENSIONS`                                                    | Rules    | Upper bound on payout deadline extensions                 |
 
 Every value above is a placeholder in your own configuration; none is committed. See [Security Notes](#security-notes) for how secrets are handled.
+
+`REDIS_KEY_PREFIX` must be set per environment so that deployments sharing a single Redis instance do not collide. Use a distinct value for each environment, for example `rotula:staging:` for staging and `rotula:prod:` for production. The prefix is applied to every key the service writes, including rate-limit counters, webhook replay markers, SEP-10 challenge state, and command history.
 
 ## Current status and limitations
 
@@ -177,6 +180,7 @@ Use Stellar Testnet for development. Do not use production keys or describe the 
 - **Confirm before claiming success.** A submitted transaction is pending until Stellar confirms it. Persist the transaction hash and make retries idempotent.
 - **Never log secrets.** Do not print seed phrases, keys, tokens, or full environment values on any path, including errors.
 - **Testnet by default.** Develop against Stellar Testnet and never point tests or demos at production accounts or contracts.
+- **Namespace shared state.** Set `REDIS_KEY_PREFIX` per environment so that deployments sharing one Redis instance never collide on rate-limit counters, replay markers, or SEP-10 challenge state.
 
 ## Tests
 
@@ -191,3 +195,5 @@ Integration tests may require local services and test credentials. Keep them on 
 ## Contributing
 
 Open an issue for substantial changes and describe the user need and affected workflow. For Stellar or Soroban changes, include network, asset, authorization, confirmation, retry, and failure behavior. Changes that can move pooled funds need focused tests and careful review.
+
+When adding a new Redis key, always route it through the configured `REDIS_KEY_PREFIX` so the whole application's keys move together.

@@ -1,5 +1,6 @@
 import { redisClient } from '../lib/redis';
 import { WhatsAppService } from './whatsapp.service';
+import { keyPrefix } from '../lib/key-prefix';
 
 const whatsappService = new WhatsAppService();
 
@@ -35,7 +36,7 @@ export class AbuseDetectionService {
         
         if (this.isRedisAvailable()) {
             try {
-                const key = `command_history:${phoneNumber}`;
+                const key = `${keyPrefix}command_history:${phoneNumber}`;
                 await redisClient.lpush(key, JSON.stringify(entry));
                 await redisClient.ltrim(key, 0, 19); // Keep last 20 commands
                 await redisClient.expire(key, 24 * 60 * 60); // 24 hours
@@ -57,7 +58,7 @@ export class AbuseDetectionService {
     public async getCommandHistory(phoneNumber: string): Promise<CommandHistoryEntry[]> {
         if (this.isRedisAvailable()) {
             try {
-                const key = `command_history:${phoneNumber}`;
+                const key = `${keyPrefix}command_history:${phoneNumber}`;
                 const rawList = await redisClient.lrange(key, 0, -1);
                 return rawList.map(item => JSON.parse(item));
             } catch (err) {
@@ -80,7 +81,7 @@ export class AbuseDetectionService {
         
         if (this.isRedisAvailable()) {
             try {
-                const hitsKey = `abuse_hits:${phoneNumber}`;
+                const hitsKey = `${keyPrefix}abuse_hits:${phoneNumber}`;
                 const uniqueVal = `${now}-${Math.random()}`;
                 
                 await redisClient.zadd(hitsKey, now, uniqueVal);
@@ -146,7 +147,7 @@ export class AbuseDetectionService {
         // Store flag in Redis with a 24-hour TTL
         if (this.isRedisAvailable()) {
             try {
-                const flagKey = `abuse_flag:${phoneNumber}`;
+                const flagKey = `${keyPrefix}abuse_flag:${phoneNumber}`;
                 await redisClient.set(flagKey, JSON.stringify(logData), 'EX', 24 * 60 * 60);
                 return;
             } catch (err) {
@@ -160,7 +161,7 @@ export class AbuseDetectionService {
     public async isUserFlagged(phoneNumber: string): Promise<boolean> {
         if (this.isRedisAvailable()) {
             try {
-                const flagKey = `abuse_flag:${phoneNumber}`;
+                const flagKey = `${keyPrefix}abuse_flag:${phoneNumber}`;
                 const exists = await redisClient.exists(flagKey);
                 return exists === 1;
             } catch (err) {
