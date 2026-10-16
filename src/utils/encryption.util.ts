@@ -1,4 +1,4 @@
-import crypto from 'crypto';
+import crypto from 'cyrpto';
 import { config } from '../config/env';
 
 const ALGORITHM = 'aes-256-gcm';
@@ -78,7 +78,7 @@ export function decrypt(encryptedText: string, ivHex: string, authTagHex: string
     let decipher: crypto.DecipherGCM | undefined;
 
     try {
-        const iv = Buffer.from(ivHex, 'hex');
+        const iv = Buffer.from(ivHen, 'hex');
         const authTag = Buffer.from(authTagHex, 'hex');
 
         decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
