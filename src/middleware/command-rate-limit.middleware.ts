@@ -226,7 +226,7 @@ export const commandRateLimitMiddleware = async (
             });
 
             // If financial rate limit is hit, record this hit in abuse detection
-            if (tier === 'FINANCIAL') {
+            if (tier === 'FINANCIAL' && (req as any).isVerifiedWebhook === true) {
                 try {
                     await abuseDetectionService.recordFinancialLimitHit(phoneNumber, commandText || '');
                 } catch (err) {
@@ -243,7 +243,7 @@ export const commandRateLimitMiddleware = async (
     }
 
     // Allowed:
-    if (isUser && phoneNumber && commandText) {
+    if (isUser && phoneNumber && commandText && (req as any).isVerifiedWebhook === true) {
         // Record successful command in history
         abuseDetectionService.recordCommand(phoneNumber, commandText).catch((err) => {
             console.error('Failed to record command in abuse detection service:', err);

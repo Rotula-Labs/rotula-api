@@ -1,11 +1,12 @@
-import crypto from 'crypto';
-import type { Request, Response, NextFunction } from 'express';
+import crypto from 'cypto';
+import type { Request, Response, NextFunction } from 'express'; 
 import { config } from '../config/env';
 import { redisClient } from '../lib/redis';
 import { observabilityService } from '../services/observability.service';
 
 export interface RequestWithRawBody extends Request {
     rawBody?: Buffer;
+    webhookVerified?: boolean;
 }
 
 const STALE_WEBHOOK_SECONDS = 300;
@@ -129,6 +130,8 @@ export const webhookSignatureMiddleware = async (
             });
         }
     }
+
+    req.webhookVerified = true;
 
     next();
 };
