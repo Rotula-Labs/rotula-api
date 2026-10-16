@@ -12,13 +12,16 @@ if (!process.env.SEP10_SERVER_SECRET) {
 if (!process.env.JWT_SECRET) {
     throw new Error('JWT_SECRET environment variable is required');
 }
+if (!process.env.VERIFY_TOKEN) {
+    throw new Error('VERIFY_TOKEN environment variable is required');
+}
 
 export const config = {
     PORT: process.env.PORT || 3000,
     WHATSAPP_TOKEN: process.env.WHATSAPP_TOKEN || '',
     WHATSAPP_PHONE_NUMBER_ID: process.env.WHATSAPP_PHONE_NUMBER_ID || '',
     WHATSAPP_APP_SECRET: process.env.WHATSAPP_APP_SECRET || '',
-    VERIFY_TOKEN: process.env.VERIFY_TOKEN || 'kolo_verify_token',
+    VERIFY_TOKEN: process.env.VERIFY_TOKEN,
     DATABASE_URL: process.env.DATABASE_URL || '',
     STELLAR_NETWORK: process.env.STELLAR_NETWORK || 'TESTNET', // TESTNET or PUBLIC
     REDIS_URL: process.env.REDIS_URL || 'redis://localhost:6379',

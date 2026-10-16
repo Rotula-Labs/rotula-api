@@ -85,6 +85,41 @@ describe('Webhook Integration', () => {
         mockRedisSet.mockResolvedValue('OK');
     });
 
+    it('returns the challenge when the configured verification token is supplied', async () => {
+        const response = await request(app)
+            .get('/api/webhook')
+            .query({
+                'hub.mode': 'subscribe',
+                'hub.verify_token': config.VERIFY_TOKEN,
+                'hub.challenge': 'verification-challenge',
+            });
+
+        expect(response.status).toBe(200);
+        expect(response.text).toBe('verification-challenge');
+    });
+
+    it('rejects an incorrect verification token', async () => {
+        const response = await request(app)
+            .get('/api/webhook')
+            .query({
+                'hub.mode': 'subscribe',
+                'hub.verify_token': 'incorrect-test-token',
+                'hub.challenge': 'verification-challenge',
+            });
+
+        expect(response.status).toBe(403);
+        expect(response.text).not.toContain('verification-challenge');
+    });
+
+    it('rejects a verification request without a token', async () => {
+        const response = await request(app)
+            .get('/api/webhook')
+            .query({ 'hub.mode': 'subscribe', 'hub.challenge': 'verification-challenge' });
+
+        expect(response.status).toBe(400);
+        expect(response.text).not.toContain('verification-challenge');
+    });
+
     it('should reject requests without a signature', async () => {
         const payload = { object: 'whatsapp_business_account' };
 

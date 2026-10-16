@@ -1,1 +1,2 @@
 process.env.SEP10_SERVER_SECRET = 'SADRSCUOAL4445MW5M6HAZM4MIAPN27DYFCAF7PMWW64LF4G2DY2V6SS'; process.env.JWT_SECRET = 'test_secret'; process.env.CURRENT_ENCRYPTION_KEY_VERSION = '1';
+process.env.VERIFY_TOKEN = 'test-webhook-verification-token';
