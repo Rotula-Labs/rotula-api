@@ -17,7 +17,11 @@ jobs:
         node-version: 20
         cache: npm
     - name: Install dependencies
-      run: npm ci
+      run: npm ci --ignore-scripts
+    - name: Verify lockfile
+      run: npm ls --all > /dev/null
+    - name: Generate Prisma client
+      run: npx prisma generate
     - name: Typecheck
       run: npx tsc --noEmit
     - name: Run tests
