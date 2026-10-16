@@ -1,6 +1,6 @@
 import express, { type ErrorRequestHandler } from 'express';
 import { spawnSync } from 'child_process';
-import { StrKey } from '@stellar/stellar-sdk';
+const { StrKey } = require('@stellar/stellar-sdk');
 import botRoutes from './routes/bot.routes';
 import adminRoutes from './routes/admin.routes';
 import authRoutes from './routes/auth.routes';
@@ -12,6 +12,7 @@ import { startContractSyncWorker } from './workers/contract-sync.worker';
 import { startContributionSchedulerWorker } from './workers/contribution-scheduler.worker';
 import { startPaymentRequestWorker } from './workers/payment-request.worker';
 import { observabilityService } from './services/observability.service';
+import { requestIdMiddleware } from './middleware/request-id.middleware';
 import { zeroAllInFlightSecrets } from './utils/secret-registry';
 
 if (!config.ENCRYPTION_KEY) {
@@ -22,7 +23,7 @@ if (!config.WHATSAPP_APP_SECRET) {
     throw new Error('WHATSAPP_APP_SECRET environment variable is required');
 }
 
-if (config.USDC_ISSUER_PUBLIC_KEY && !StrKey.isValidEd25519PublicKey(config.USDC_ISSUER_PUBLIC_KEY)) {
+if (config.USDB_ISSUER_PUBLIC_KEY && !StrKey.isValidEd25519PublicKey(config.USDC_ISSUER_PUBLIC_KEY)) {
     throw new Error('USDC_ISSUER_PUBLIC_KEY is set but is not a valid Stellar public key');
 }
 
@@ -61,6 +62,8 @@ process.on('uncaughtException', (err) => {
 
 const app = express();
 
+app.use(requestIdMiddleware);
+
 app.use(express.json({
     limit: '1mb',
     verify: (req: any, res, buf) => {
@@ -82,7 +85,8 @@ app.get('/', (req, res) => {
 // own try/catch still produces a clean 500 instead of a default error page or
 // a hung request.
 const errorHandler: ErrorRequestHandler = (err, req, res, next) => {
-    observabilityService.alertCriticalFailure('Unhandled request error', err, { path: req.path, method: req.method });
+    const requestId = (res.locals as Record<string, any>).requestId as string | undefined;
+    observabilityService.alertCriticalFailure('Unhandled request error', err, { path: req.path, method: req.method, requestId });
     if (res.headersSent) {
         return next(err);
     }

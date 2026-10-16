@@ -30,6 +30,7 @@ export class ObservabilityService {
             error: error instanceof Error ? error.message : String(error),
             stack: error instanceof Error ? error.stack : undefined,
             context,
+            requestId: context?.requestId,
             timestamp: new Date().toISOString()
         };
         
