@@ -1,5 +1,6 @@
 import { redisClient } from '../lib/redis';
 import { WhatsAppService } from './whatsapp.service';
+import { logWarning, logError } from './observability.service';
 
 const whatsappService = new WhatsAppService();
 
@@ -41,7 +42,7 @@ export class AbuseDetectionService {
                 await redisClient.expire(key, 24 * 60 * 60); // 24 hours
                 return;
             } catch (err) {
-                console.warn('Redis error in recordCommand, falling back to in-memory:', err);
+                logWarning('Redis error in recordCommand, falling back to in-memory', { error: err });
             }
         }
         
@@ -61,7 +62,7 @@ export class AbuseDetectionService {
                 const rawList = await redisClient.lrange(key, 0, -1);
                 return rawList.map(item => JSON.parse(item));
             } catch (err) {
-                console.warn('Redis error in getCommandHistory, falling back to in-memory:', err);
+                logWarning('Redis error in getCommandHistory, falling back to in-memory', { error: err });
             }
         }
         
@@ -92,7 +93,7 @@ export class AbuseDetectionService {
                     flagged = true;
                 }
             } catch (err) {
-                console.warn('Redis error in recordFinancialLimitHit, falling back to in-memory:', err);
+                logWarning('Redis error in recordFinancialLimitHit, falling back to in-memory', { error: err });
                 flagged = false;
             }
         }
@@ -128,7 +129,7 @@ export class AbuseDetectionService {
             commandHistory: history
         };
         
-        console.warn(`[ABUSE DETECTION] User flagged for review:`, JSON.stringify(logData, null, 2));
+        logWarning('[ABUSE DETECTION] User flagged for review', { logData });
         
         // Send WhatsApp admin notification if ADMIN_PHONE_NUMBER is configured
         const adminPhone = process.env.ADMIN_PHONE_NUMBER;
@@ -139,7 +140,7 @@ export class AbuseDetectionService {
                     `⚠️ [ABUSE DETECTED] User ${phoneNumber} has been flagged for review. Hit financial rate limit 3 times in 10 minutes.`
                 );
             } catch (err) {
-                console.error('Failed to send admin WhatsApp notification:', err);
+                logError('Failed to send admin WhatsApp notification', { error: err });
             }
         }
         
@@ -150,7 +151,7 @@ export class AbuseDetectionService {
                 await redisClient.set(flagKey, JSON.stringify(logData), 'EX', 24 * 60 * 60);
                 return;
             } catch (err) {
-                console.warn('Redis error in flagUserForReview, falling back to in-memory:', err);
+                logWarning('Redis error in flagUserForReview, falling back to in-memory', { error: err });
             }
         }
         
@@ -164,7 +165,7 @@ export class AbuseDetectionService {
                 const exists = await redisClient.exists(flagKey);
                 return exists === 1;
             } catch (err) {
-                console.warn('Redis error in isUserFlagged, falling back to in-memory:', err);
+                logWarning('Redis error in isUserFlagged, falling back to in-memory', { error: err });
             }
         }
         

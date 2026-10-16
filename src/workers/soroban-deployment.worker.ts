@@ -18,7 +18,10 @@ export function startSorobanDeploymentWorker(): void {
         'soroban-deployment',
         async (job: Job) => {
             const { groupId } = job.data;
-            console.log(`Processing contract deployment for group ${groupId} (Job ${job.id})`);
+            observabilityService.logInfo('Processing contract deployment', {
+                groupId,
+                jobId: job.id,
+            });
 
             const group = await prisma.savingsGroup.findUnique({
                 where: { id: groupId },
@@ -44,7 +47,10 @@ export function startSorobanDeploymentWorker(): void {
                     const walletObj = JSON.parse(creatorMember.user.stellarWallet);
                     adminPublicKey = walletObj.publicKey;
                 } catch (e) {
-                    console.warn(`Could not parse creator stellarWallet for user ${creatorMember.userId}`);
+                    observabilityService.logWarning('Could not parse creator stellarWallet', {
+                        userId: creatorMember.userId,
+                        groupId,
+                    });
                 }
             }
 
@@ -66,7 +72,10 @@ export function startSorobanDeploymentWorker(): void {
                     },
                 });
 
-                console.log(`Successfully deployed contract ${result.contractId} for group ${groupId}`);
+                observabilityService.logInfo('Successfully deployed contract', {
+                    contractId: result.contractId,
+                    groupId,
+                });
             } catch (error: any) {
                 const errorMessage = error?.message || String(error);
                 await prisma.savingsGroup.update({
@@ -92,14 +101,19 @@ export function startSorobanDeploymentWorker(): void {
     );
 
     workerInstance.on('completed', (job) => {
-        console.log(`Soroban deployment job ${job.id} completed`);
+        observabilityService.logInfo('Soroban deployment job completed', {
+            jobId: job.id,
+        });
     });
 
     workerInstance.on('failed', (job, err) => {
-        console.error(`Soroban deployment job ${job?.id} failed after ${job?.attemptsMade} attempts:`, err.message);
+        observabilityService.logError('Soroban deployment job failed', err, {
+            jobId: job?.id,
+            attemptsMade: job?.attemptsMade,
+        });
     });
 
-    console.log('Soroban deployment worker started');
+    observabilityService.logInfo('Soroban deployment worker started');
 }
 
 export async function closeSorobanDeploymentWorker(): Promise<void> {

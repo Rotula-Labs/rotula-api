@@ -3,6 +3,7 @@ export class ObservabilityService {
      * Logs general operational info.
      */
     public logInfo(message: string, context?: Record<string, any>): void {
+        // eslint-disable-next-line no-console
         console.log(`[INFO] ${message}`, context ? JSON.stringify(context) : '');
     }
 
@@ -10,6 +11,7 @@ export class ObservabilityService {
      * Logs warnings.
      */
     public logWarning(message: string, context?: Record<string, any>): void {
+        // eslint-disable-next-line no-console
         console.warn(`[WARN] ${message}`, context ? JSON.stringify(context) : '');
     }
 
@@ -17,6 +19,7 @@ export class ObservabilityService {
      * Logs non-critical errors.
      */
     public logError(message: string, error?: any, context?: Record<string, any>): void {
+        // eslint-disable-next-line no-console
         console.error(`[ERROR] ${message}`, error, context ? JSON.stringify(context) : '');
     }
 
@@ -32,11 +35,9 @@ export class ObservabilityService {
             context,
             timestamp: new Date().toISOString()
         };
-        
+
+        // eslint-disable-next-line no-console
         console.error(`[CRITICAL ALERT] Immediate action required:`, JSON.stringify(payload, null, 2));
-        
-        // In a real scenario, this would POST to Sentry, Datadog, or an incident management webhook.
-        // We decouple the alerting mechanism here so it's fully unit-testable.
     }
 }
 

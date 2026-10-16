@@ -2,6 +2,7 @@ import * as StellarSdk from '@stellar/stellar-sdk';
 import { config } from '../config/env';
 import { encrypt, encryptBuffer } from '../utils/encryption.util';
 import { redisClient } from '../lib/redis';
+import { logInfo, logWarning, logError } from './observability.service';
 export interface GeneratedWallet {
     publicKey: string;
     encryptedSecret: string;
@@ -79,9 +80,9 @@ export class StellarService {
             if (response.status !== 200) {
                 throw new Error(`Friendbot funding failed with status ${response.status}`);
             }
-            console.log(`Friendbot successfully funded ${publicKey}`);
+            logInfo('Friendbot successfully funded account', { publicKey });
         } catch (error) {
-            console.error('Friendbot funding failed:', error);
+            logError('Friendbot funding failed', { error, publicKey });
         }
     }
 
@@ -97,7 +98,7 @@ export class StellarService {
                 balance: b.balance,
             }));
         } catch (error) {
-            console.error('Error checking balance:', error);
+            logError('Error checking balance', { error, publicKey });
             return [];
         }
     }
@@ -138,7 +139,7 @@ export class StellarService {
             await invalidateKeys(sourceKeypair.publicKey());
             await invalidateKeys(destinationPublicKey);
         } catch (e) {
-            console.error('Failed to invalidate cache', e);
+            logError('Failed to invalidate cache', { error: e });
         }
 
         return result;
@@ -158,7 +159,7 @@ export class StellarService {
                 return JSON.parse(cached);
             }
         } catch (e) {
-            console.error('Redis cache error:', e);
+            logError('Redis cache error', { error: e, cacheKey });
             // continue to fetch from horizon
         }
 
@@ -185,7 +186,7 @@ export class StellarService {
             } else if (error?.response?.status === 404) {
                 throw new Error('No transaction history — your wallet hasn\'t been funded yet');
             } else {
-                console.error('Error fetching transactions:', error);
+                logError('Error fetching transactions', { error, publicKey, cursor });
                 throw new Error('Transaction history is temporarily unavailable. Please try again later.');
             }
         }
@@ -228,7 +229,7 @@ export class StellarService {
                     }
                 }
             } catch (opErr) {
-                console.error('Error parsing ops for tx', tx.id, opErr);
+                logError('Error parsing ops for tx', { error: opErr, txId: tx.id });
             }
 
             parsedTransactions.push({
@@ -251,7 +252,7 @@ export class StellarService {
         try {
             await redisClient.set(cacheKey, JSON.stringify(result), 'EX', 300); // 5 minutes TTL
         } catch (e) {
-            console.error('Redis set error:', e);
+            logError('Redis set error', { error: e, cacheKey });
         }
 
         return result;

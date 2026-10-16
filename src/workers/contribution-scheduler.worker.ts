@@ -6,6 +6,7 @@ import { PayoutService } from '../services/payout.service';
 import { enqueueDelayedReminder, enqueueCycleEnd } from '../queue/contribution-scheduler.queue';
 import { redisClient } from '../lib/redis';
 import { applyEncryptionMiddleware } from '../middleware/prisma-encryption.middleware';
+import { logInfo, logWarning, logError } from '../services/observability.service';
 
 const prisma = new PrismaClient();
 applyEncryptionMiddleware(prisma);
@@ -22,7 +23,7 @@ export function startContributionSchedulerWorker(): void {
     workerInstance = new Worker(
         'contribution-scheduling',
         async (job: Job) => {
-            console.log(`Processing contribution-scheduling job ${job.id} (${job.name})`);
+            logInfo('Processing contribution-scheduling job', { jobId: job.id, jobName: job.name });
 
             try {
                 if (job.name === 'cycle-start') {
@@ -33,7 +34,7 @@ export function startContributionSchedulerWorker(): void {
                     await handleCycleEnd(job, payoutService);
                 }
             } catch (err) {
-                console.error(`Error processing job ${job.id}:`, err);
+                logError('Error processing job', { jobId: job.id, error: err });
                 throw err;
             }
         },
@@ -44,14 +45,14 @@ export function startContributionSchedulerWorker(): void {
     );
 
     workerInstance.on('completed', (job) => {
-        console.log(`Contribution job ${job.id} completed`);
+        logInfo('Contribution job completed', { jobId: job.id });
     });
 
     workerInstance.on('failed', (job, err) => {
-        console.error(`Contribution job ${job?.id} failed after ${job?.attemptsMade} attempts:`, err);
+        logError('Contribution job failed', { jobId: job?.id, attemptsMade: job?.attemptsMade, error: err });
     });
 
-    console.log('Contribution scheduler worker started');
+    logInfo('Contribution scheduler worker started');
 }
 
 async function handleCycleStart(job: Job, whatsappService: WhatsAppService) {
@@ -106,7 +107,7 @@ async function handleCycleStart(job: Job, whatsappService: WhatsAppService) {
         try {
             await whatsappService.sendMessage(member.user.phoneNumber, message);
         } catch (e) {
-            console.error(`Failed to send initial reminder to ${member.user.phoneNumber}`);
+            logError('Failed to send initial reminder', { phoneNumber: member.user.phoneNumber, error: e });
         }
     }
 }
@@ -151,11 +152,11 @@ async function handleLastCallReminder(job: Job, whatsappService: WhatsAppService
         const acquired = await redisClient.set(dedupKey, '1', 'EX', 48 * 60 * 60, 'NX');
         
         if (acquired === 'OK') {
-            const message = `🚨 Last call reminder! Please contribute your required amount of ${group.contributionAmount} XLM for ${group.name} by ${group.currentCycleEnd.toDateString()}.`;
+            const message = `🚂 Last call reminder! Please contribute your required amount of ${group.contributionAmount} XLM for ${group.name} by ${group.currentCycleEnd.toDateString()}.`;
             try {
                 await whatsappService.sendMessage(member.user.phoneNumber, message);
             } catch (e) {
-                console.error(`Failed to send last call reminder to ${member.user.phoneNumber}`);
+                logError('Failed to send last call reminder', { phoneNumber: member.user.phoneNumber, error: e });
                 // If it failed, delete the key so we can retry
                 await redisClient.del(dedupKey);
             }

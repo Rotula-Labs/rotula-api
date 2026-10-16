@@ -3,6 +3,7 @@ import Backend from 'i18next-fs-backend';
 import chokidar from 'chokidar';
 import path from 'path';
 import fs from 'fs';
+import { logInfo, logWarning, logError } from './observability.service';
 
 const SUPPORTED_LANGUAGES = ['en', 'fr', 'yo', 'pcm', 'ha', 'ig'] as const;
 export type SupportedLanguage = typeof SUPPORTED_LANGUAGES[number];
@@ -56,22 +57,22 @@ export async function initI18n(): Promise<void> {
             try {
                 const langPath = path.join(localesDir, `${lang}.json`);
                 if (!fs.existsSync(langPath)) {
-                    console.warn(`[i18n] Missing translation file: ${lang}.json`);
+                    logWarning('[i18n] Missing translation file', { file: `${lang}.json` });
                     continue;
                 }
                 const langData = JSON.parse(fs.readFileSync(langPath, 'utf8'));
                 const langKeys = new Set(checkKeys(langData));
                 for (const key of enKeys) {
                     if (!langKeys.has(key)) {
-                        console.warn(`[i18n] Missing key '${key}' in ${lang}.json`);
+                        logWarning('[i18n] Missing key in translation file', { key, file: `${lang}.json` });
                     }
                 }
             } catch (err) {
-                console.warn(`[i18n] Could not load/validate ${lang}.json`);
+                logWarning('[i18n] Could not load/validate translation file', { file: `${lang}.json`, error: err });
             }
         }
     } catch (err) {
-        console.error('[i18n] Failed to validate locales on startup', err);
+        logError('[i18n] Failed to validate locales on startup', { error: err });
     }
 
     if (process.env.NODE_ENV !== 'production' && process.env.NODE_ENV !== 'test') {
@@ -81,9 +82,9 @@ export async function initI18n(): Promise<void> {
             if (filePath.endsWith('.json')) {
                 const lang = path.basename(filePath, '.json');
                 if (SUPPORTED_LANGUAGES.includes(lang as any)) {
-                    console.log(`[i18n] Reloading translations for ${lang}`);
+                    logInfo('[i18n] Reloading translations', { lang });
                     i18next.reloadResources(lang).catch(err => {
-                        console.error(`[i18n] Reload failed for ${lang}`, err);
+                        logError('[i18n] Reload failed', { lang, error: err });
                     });
                 }
             }
