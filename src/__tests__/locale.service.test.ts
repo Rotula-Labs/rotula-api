@@ -73,6 +73,19 @@ describe('locale.service', () => {
             expect(result).not.toContain('{{requestId}}');
         });
 
+        it('should describe an unreadable wallet as our problem without inviting a retry', async () => {
+            const { initI18n, t } = await import('../services/locale.service');
+            await initI18n();
+            const result = t('payment_request.error_wallet_unreadable', 'en');
+            // The key resolves to a real message, not the raw key.
+            expect(result).not.toBe('payment_request.error_wallet_unreadable');
+            expect(result.toLowerCase()).not.toMatch(/try again|try later|retry|check the id/);
+            expect(result.toLowerCase()).toContain('our side');
+            expect(result.toLowerCase()).toContain('notified');
+            // Must not expose wallet contents or internal parsing details.
+            expect(result.toLowerCase()).not.toMatch(/json|parse|blob|decrypt|secret|stack/);
+        });
+
         it('should return the English send success string with interpolation', async () => {
             const { initI18n, t } = await import('../services/locale.service');
             await initI18n();

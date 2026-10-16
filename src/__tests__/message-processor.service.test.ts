@@ -791,6 +791,17 @@ describe('MessageProcessor', () => {
             expect(mockSendMessage).toHaveBeenCalledWith('67890', expect.stringContaining('payment_request.error_not_responder'));
         });
 
+        it('ACCEPT reports an unreadable wallet with its dedicated error, not a retryable state conflict', async () => {
+            const { PaymentRequestError } = require('../services/payment-request.service');
+            mockAcceptPaymentRequest.mockRejectedValue(new PaymentRequestError('wallet_unreadable'));
+
+            await processor.processCommand('67890', 'ACCEPT REQ-1');
+
+            expect(mockSendMessage).toHaveBeenCalledWith('67890', expect.stringContaining('payment_request.error_wallet_unreadable'));
+            expect(mockSendMessage).not.toHaveBeenCalledWith('67890', expect.stringContaining('payment_request.error_not_pending'));
+            expect(scheduleRequestCompletion).not.toHaveBeenCalled();
+        });
+
         it('DECLINE marks the request declined and notifies the requester', async () => {
             mockDeclinePaymentRequest.mockResolvedValue({
                 amount: '50',
