@@ -5,6 +5,7 @@ import { SorobanService } from './soroban.service';
 import { WhatsAppService } from './whatsapp.service';
 import { removeGroupCycle } from '../queue/contribution-scheduler.queue';
 import { config } from '../config/env';
+import { broadcastToGroupMembers } from './broadcast.service';
 
 export type GroupExitErrorCode =
     | 'group_not_found'
@@ -228,17 +229,11 @@ export class GroupExitService {
     }
 
     private async notifyGroup(groupId: string, excludeUserId: string, message: string): Promise<void> {
-        const members = await prisma.groupMember.findMany({
-            where: { groupId, status: { not: 'LEFT' }, userId: { not: excludeUserId } },
-            include: { user: true },
-        });
-        for (const m of members) {
-            if (!m.user?.phoneNumber) continue;
-            try {
-                await this.whatsappService.sendMessage(m.user.phoneNumber, message);
-            } catch (e) {
-                console.error(`Failed to notify ${m.user.phoneNumber}`, e);
-            }
-        }
+        await broadcastToGroupMembers(
+            groupId,
+            message,
+            { status: { not: 'LEFT' }, userId: { not: excludeUserId } },
+            this.whatsappService,
+        );
     }
 }

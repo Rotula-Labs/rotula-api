@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { config } from '../config/env';
+import { observabilityService } from './observability.service';
 
 export class WhatsAppService {
     private apiUrl = `https://graph.facebook.com/v17.0/${config.WHATSAPP_PHONE_NUMBER_ID}/messages`;
@@ -21,8 +22,10 @@ export class WhatsAppService {
                     },
                 }
             );
+            return { success: true, to };
         } catch (error) {
-            console.error('Error sending WhatsApp message:', error);
+            observabilityService.logError(error, { recipient: to, context: 'whatsapp.sendMessage' });
+            return { success: false, to, error };
         }
     }
 }

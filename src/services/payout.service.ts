@@ -1,6 +1,7 @@
 import { PrismaClient, Prisma } from '@prisma/client';
 import { WhatsAppService } from './whatsapp.service';
 import { SorobanService } from './soroban.service';
+import { broadcastToGroupMembers } from './group-broadcast.service';
 import { config } from '../config/env';
 import { enqueueCycleEnd } from '../queue/contribution-scheduler.queue';
 
@@ -412,15 +413,4 @@ export class PayoutService {
         }
     }
 
-    private async notifyAllMembers(groupId: string, message: string): Promise<void> {
-        const members = await prisma.groupMember.findMany({ where: { groupId }, include: { user: true } });
-        for (const member of members) {
-            if (!member.user?.phoneNumber) continue;
-            try {
-                await this.whatsappService.sendMessage(member.user.phoneNumber, message);
-            } catch (e) {
-                console.error(`Failed to notify ${member.user.phoneNumber}`, e);
-            }
-        }
-    }
 }
