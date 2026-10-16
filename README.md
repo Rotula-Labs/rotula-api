@@ -42,14 +42,14 @@ Savings groups need more than a chat log. They need a reliable record of who con
 
 ```text
 WhatsApp
-   │ signed webhook
+     signed webhook
    ▼
-Express API ──► BullMQ / Redis ──► command and schedule workers
+Express API ──► BullMQ / Redis —— workers process commands and send localized responses and reminders
                                       │
-                                      ├──► PostgreSQL / Prisma
-                                      ├──► Stellar Horizon payments and accounts
-                                      └──► Soroban RPC contract calls
-                                               │
+                                      ├─► PostgreSQL / Prisma
+                                      ├─► Stellar Horizon payments and accounts
+                                      └─► Soroban RPC contract calls
+                                                
                                                ▼
                                       confirmation + reconciliation
 ```
@@ -67,10 +67,10 @@ The backend is a coordinator, not proof that a transfer has settled. A transacti
 
 ## Repository family
 
-| Repository                                                          | Role                                                                     |
-| ------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| [rotula-app](https://github.com/Rotula-Labs/rotula-app)             | Landing page and early member and administrator web screens              |
-| [rotula-api](https://github.com/Rotula-Labs/rotula-api)             | WhatsApp, API, data, Stellar, and Soroban coordination (this repository) |
+| Repository                                                                  | Role                                                                               |
+| ------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| [rotula-app](https://github.com/Rotula-Labs/rotula-app)                 | Landing page and early member and administrator web screens              |
+| [rotula-api](https://github.com/Rotula-Labs/rotula-api)                 | WhatsApp, API, data, Stellar, and Soroban coordination (this repository) |
 | [rotula-contracts](https://github.com/Rotula-Labs/rotula-contracts) | Rust Soroban contract for group savings rules                            |
 
 ## Main components
@@ -84,11 +84,11 @@ The backend is a coordinator, not proof that a transfer has settled. A transacti
 
 ## Prerequisites
 
-| Tool                | Version / Notes                                                         | Install                                                 |
-| ------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------- |
-| **Node.js**         | 20 or newer, with npm                                                   | https://nodejs.org                                      |
-| **PostgreSQL**      | a running instance for Prisma migrations and data-backed flows          | https://www.postgresql.org                              |
-| **Redis**           | a running instance for BullMQ queues and workers                        | https://redis.io                                        |
+| Tool                | Version / Notes                                                     | Install                                                     |
+| ------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| **Node.js**         | 20 or newer, with npm                                               | https://nodejs.org                                                  |
+| **PostgreSQL**      | a running instance for Prisma migrations and data-backed flows          | https://www.postgresql.org                                          |
+| **Redis**           | a running instance for BullMQ cueues and workers                        | https://redis.io                                                    |
 | **Stellar Testnet** | a Soroban RPC endpoint and a funded deployer identity for contract work | `stellar keys generate <name> --network testnet --fund` |
 
 Verify your setup:
@@ -105,6 +105,9 @@ Requires Node.js, PostgreSQL, and Redis. Configure the environment for the servi
 
 ```bash
 npm ci
+npx prisma generate
+npx tsc --noEmit
+npm test
 npx ts-node src/index.ts
 ```
 
@@ -118,76 +121,29 @@ npm test         # run the Jest suite
 
 `npm run dev` shells out to `nodemon`, which is not listed in `package.json`; either install it (`npm install --save-dev nodemon`) or run the service directly with the declared `npx ts-node src/index.ts`.
 
+The same sequence runs in CI: `npm ci`, `npx prisma generate`, `npx tsc --noEmit`, and `npm test`. Generated Prisma client code is a build input for the typecheck, so it must be produced before `NPx tsc` is run.
+
 Apply Prisma migrations and generate the Prisma client for your development database before running database-backed flows. Configure Stellar Testnet and a Soroban Testnet RPC endpoint for integration work.
 
 ## Environment Variables Reference
 
 Copy the required values into a local `.env` (never committed). Grouped by area:
 
-| Variable                                                                            | Area     | Purpose                                                   |
-| ----------------------------------------------------------------------------------- | -------- | --------------------------------------------------------- |
-| `NODE_ENV`                                                                          | Runtime  | `development`, `test`, or `production`                    |
-| `PORT`                                                                              | Runtime  | HTTP port for the Express server                          |
-| `DATABASE_URL`                                                                      | Data     | PostgreSQL connection string used by Prisma               |
-| `REDIS_URL`                                                                         | Data     | Redis connection string for BullMQ queues and workers     |
-| `JWT_SECRET`                                                                        | Auth     | Signing secret for application sessions                   |
-| `HMAC_KEY`                                                                          | Security | Key for request/webhook integrity checks                  |
-| `ENCRYPTION_KEY`, `ENCRYPTION_KEY_V1..V3`                                           | Security | At-rest encryption keys for stored wallet material        |
-| `CURRENT_ENCRYPTION_KEY_VERSION`                                                    | Security | Which encryption key version new records use              |
-| `STELLAR_NETWORK`                                                                   | Stellar  | Target network (`testnet` or `public`)                    |
-| `SOROBAN_RPC_URL`                                                                   | Stellar  | Soroban RPC endpoint for contract calls                   |
-| `CONTRACT_WASM_PATH`                                                                | Stellar  | Path to the compiled savings-group Wasm for deploys       |
-| `DEPLOYER_SECRET_KEY`                                                               | Stellar  | Deployer identity used to publish contract instances      |
-| `GROUP_TREASURY_SECRET`                                                             | Stellar  | Treasury signing material for group flows                 |
-| `USDC_TOKEN_ADDRESS`, `USDC_ISSUER_PUBLIC_KEY`                                      | Assets   | Configured savings token contract and issuer              |
-| `SEP10_HOME_DOMAIN`, `SEP10_SERVER_SECRET`, `SEP10_CHALLENGE_TTL_SECONDS`           | SEP-10   | Challenge transaction settings for Stellar authentication |
-| `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_APP_SECRET`, `VERIFY_TOKEN` | WhatsApp | Cloud API credentials and webhook verification            |
-| `ADMIN_TOKEN`, `ADMIN_PHONE_NUMBER`                                                 | Admin    | Operator access to administrative commands                |
-| `MAX_PAYOUT_DEADLINE_EXTENSIONS`                                                    | Rules    | Upper bound on payout deadline extensions                 |
-
-Every value above is a placeholder in your own configuration; none is committed. See [Security Notes](#security-notes) for how secrets are handled.
-
-## Current status and limitations
-
-- The frontend and backend are not yet a fully connected product. Some frontend data, authentication, and wallet routes are prototypes.
-- Worker implementations exist, but not all are started by the current server entry point. Verify worker lifecycle before relying on a background flow.
-- Contract deployment, member lifecycle, contribution handling, and payout orchestration are still being aligned with the current Soroban ABI.
-- The contract code has a Stellar Testnet deployment for review, but no savings group has been initialized. This is not an active savings service.
-- Asset denomination is inconsistent: the product brief targets USDC, while implemented payment and command paths include XLM. Contract amounts are integer base units and require exact asset decimal handling.
-- Some user-facing operations, including group withdrawal, are marked or implemented as mocked. A success message in a command path is not evidence of an on-chain transfer.
-- Platform-managed wallet signing material is encrypted at rest in the current design. Rotula is not currently a self-custody wallet product; key custody and operational safeguards remain part of product and security work.
-
-Use Stellar Testnet for development. Do not use production keys or describe the service as ready to custody funds or run real savings circles.
-
-## Stellar development notes
-
-- Keep the configured Stellar network, Horizon endpoint, Soroban RPC endpoint, and network passphrase aligned.
-- Validate the asset code **and issuer**, token contract address, amount units, and conversion rules together.
-- Require appropriate user or administrator authorization for every state-changing contract call.
-- Treat submission as pending until network confirmation; persist the transaction hash and make retries idempotent.
-- Keep database records reconcilable with Horizon transaction data and Soroban contract state.
-- Minimize signing-secret lifetime in memory. Never log secrets, seed phrases, tokens, or full environment values.
-- Test failure, retry, duplicate-message, partial-group, and reconciliation scenarios on Testnet.
-
-## Security Notes
-
-- **Secrets never enter Git.** Only placeholders belong in the repository; real values live in local environment configuration or a secret manager, and `.gitignore` keeps `.env` out of commits.
-- **Signing material is encrypted at rest.** Platform-managed wallet keys are stored encrypted; Rotula is not currently a self-custody product, so key custody and operational safeguards remain part of the security work.
-- **Authorization is on chain.** Every state-changing contract call requires the corresponding Soroban authorization; a success message in a command path is not evidence of an on-chain transfer.
-- **Confirm before claiming success.** A submitted transaction is pending until Stellar confirms it. Persist the transaction hash and make retries idempotent.
-- **Never log secrets.** Do not print seed phrases, keys, tokens, or full environment values on any path, including errors.
-- **Testnet by default.** Develop against Stellar Testnet and never point tests or demos at production accounts or contracts.
-
-## Tests
-
-The Jest suite covers command processing, webhook verification, encryption, services, workers, and integration scenarios.
-
-```bash
-npm test
-```
-
-Integration tests may require local services and test credentials. Keep them on Testnet and never point them at production accounts or contracts.
-
-## Contributing
-
-Open an issue for substantial changes and describe the user need and affected workflow. For Stellar or Soroban changes, include network, asset, authorization, confirmation, retry, and failure behavior. Changes that can move pooled funds need focused tests and careful review.
+| Variable                                                                                | Area     | Purpose                                                   |
+| ------------------------------------------------------------------------------------------- | -------- | ---------------------------------------------------------------------- |
+| `NODE_ENV`                                                                             | Runtime  | `development`, `test`, or `production`                            |
+| `PORT`                                                                                 | Runtime  | HTTP port for the Express server                                  |
+| `DATABASE_URL`                                                                       | Data     | PostgreSQL connection string used by Prisma                           |
+| `REDIS_URL`                                                                        | Data     | Redis connection string for BullMQ queues and workers                 |
+| `JWT_SECRET`                                                                      | Auth     | Signing secret for application sessions                              |
+| `HMAC_KEY`                                                                       | Security | Key for request/webhook integrity checks                              |
+| `ENCRYPTION_KEY`, `ENCRYPTION_KEY_V1..V3`                                        | Security | At-rest encryption keys for stored wallet material                    |
+| `CURRENT_ENCRYPTION_KEY_VERSION`                                                    | Security | Which encryption key version new records use                          |
+| `STELLAR_NETWORK`                                                                   | Stellar  | Target network (`testnet` or `public`)                            |
+| `SOROBAN_RPC_URL`                                                                 | Stellar  | Soroban RPC endpoint for contract calls                           |
+| `CONTRACT_WASM_PATH`                                                               | Stellar  | Path to the compiled savings-group Wasm for deploys                   |
+| `DEPLOYER_SECRET_KEY`                                                              | Stellar  | Deployer identity used to publish contract instances                  |
+| `GROUP_TREESURY_SECRET`                                                           | Stellar  | Treasury signing material for group flows                             |
+| `USCC_TOKEN_ADDRESS`, `USDC_ISSUER_PUBLIC_KEY`                                      | Assets   | Configured savings token contract and issuer                          |
+| `SEP10_HOME_DOMAIN`                                                                 | SEP-10   | Challenge transaction settings for Stellar authentication             |
+| `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_APP_SECRET`, `VER
