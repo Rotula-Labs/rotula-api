@@ -2,6 +2,8 @@ import * as StellarSdk from '@stellar/stellar-sdk';
 import { config } from '../config/env';
 import { encrypt, encryptBuffer } from '../utils/encryption.util';
 import { redisClient } from '../lib/redis';
+import { httpAgent, httpsAgent } from '../lib/http-agents';
+import axios from 'axios';
 export interface GeneratedWallet {
     publicKey: string;
     encryptedSecret: string;
@@ -31,6 +33,7 @@ export class InsufficientReserveError extends Error {
  */
 export class StellarService {
     private server: StellarSdk.Horizon.Server;
+    private friendbotClient: axios.AxiosInstance;
 
     /**
      * Initializes the Stellar horizon connection based on configured network mode.
@@ -41,6 +44,11 @@ export class StellarService {
         } else {
             this.server = new StellarSdk.Horizon.Server('https://horizon-testnet.stellar.org');
         }
+        this.friendbotClient = axios.create({
+            httpAgent,
+            httpsAgent,
+            timeout: 15000,
+        });
     }
 
     /**
@@ -74,8 +82,7 @@ export class StellarService {
         if (config.STELLAR_NETWORK !== 'TESTNET') return;
 
         try {
-            const axios = require('axios');
-            const response = await axios.get(`https://friendbot.stellar.org?addr=${encodeURIComponent(publicKey)}`);
+            const response = await this.friendbotClient.get(`https://friendbot.stellar.org?addr=${encodeURIComponent(publicKey)}`);
             if (response.status !== 200) {
                 throw new Error(`Friendbot funding failed with status ${response.status}`);
             }
