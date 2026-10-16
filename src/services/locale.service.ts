@@ -1,8 +1,8 @@
 import i18next from 'i18next';
 import Backend from 'i18next-fs-backend';
-import chokidar from 'chokidar';
 import path from 'path';
 import fs from 'fs';
+import { observabilityService } from './observability.service';
 
 const SUPPORTED_LANGUAGES = ['en', 'fr', 'yo', 'pcm', 'ha', 'ig'] as const;
 export type SupportedLanguage = typeof SUPPORTED_LANGUAGES[number];
@@ -17,8 +17,6 @@ let initialised = false;
  * @returns {Promise<void>} A promise that resolves when i18next initialization is complete.
  */
 export async function initI18n(): Promise<void> {
-    if (initialised) return;
-
     const localesDir = path.join(__dirname, '../locales');
 
     await i18next
@@ -27,12 +25,17 @@ export async function initI18n(): Promise<void> {
             lng: 'en',
             fallbackLng: 'en',
             backend: {
-                loadPath: path.join(localesDir, '{{lng}}.json'),
             },
             interpolation: {
                 escapeValue: false
             },
         });
+
+    // Strict mode is the default: a missing translation key or locale file
+    // prevents startup unless explicitly opted out via I18N_STRICT=false.
+    const strictMode = process.env.I18N_STRICT !== 'false';
+    const missingFiles: string[] = [];
+    const missingKeys: string[] = [];
 
     // Validate translations against en.json
     try {
@@ -40,7 +43,7 @@ export async function initI18n(): Promise<void> {
         const enData = JSON.parse(fs.readFileSync(enPath, 'utf8'));
         const checkKeys = (obj: any, prefix = '') => {
             const keys: string[] = [];
-            for (const k in obj) {
+            for (const k of Object.keys(obj)) {
                 if (typeof obj[k] === 'object' && obj[k] !== null) {
                     keys.push(...checkKeys(obj[k], `${prefix}${k}.`));
                 } else {
@@ -56,28 +59,42 @@ export async function initI18n(): Promise<void> {
             try {
                 const langPath = path.join(localesDir, `${lang}.json`);
                 if (!fs.existsSync(langPath)) {
-                    console.warn(`[i18n] Missing translation file: ${lang}.json`);
+                    missingFiles.push(`${lang}.json`);
                     continue;
                 }
                 const langData = JSON.parse(fs.readFileSync(langPath, 'utf8'));
                 const langKeys = new Set(checkKeys(langData));
                 for (const key of enKeys) {
                     if (!langKeys.has(key)) {
-                        console.warn(`[i18n] Missing key '${key}' in ${lang}.json`);
+                        missingKeys.push(`${lang}:${key}`);
                     }
                 }
             } catch (err) {
-                console.warn(`[i18n] Could not load/validate ${lang}.json`);
+                missingFiles.push(`${lang}.json`);
             }
         }
     } catch (err) {
         console.error('[i18n] Failed to validate locales on startup', err);
+        missingFiles.push('en.json');
+    }
+
+    if (missingFiles.length > 0 || missingKeys.length > 0) {
+        const details = [
+            ...missingFiles.map(f => `missing translation file: ${f}`),
+            ...missingKeys.map(k => `missing key ${k}`),
+        ].join('; ');
+        const message = `[i18n] Locale validation failed: ${details}`;
+        if (strictMode) {
+            throw new Error(message);
+        }
+        console.error(message);
+        observabilityService.critical?.(message);
     }
 
     if (process.env.NODE_ENV !== 'production' && process.env.NODE_ENV !== 'test') {
         const chokidar = await import('chokidar');
         const watcher = chokidar.watch(localesDir, { ignoreInitial: true });
-        watcher.on('all', (event, filePath) => {
+        watcher.on('change', (filePath: string) => {
             if (filePath.endsWith('.json')) {
                 const lang = path.basename(filePath, '.json');
                 if (SUPPORTED_LANGUAGES.includes(lang as any)) {
