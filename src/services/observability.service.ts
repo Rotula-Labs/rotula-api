@@ -21,6 +21,32 @@ export class ObservabilityService {
     }
 
     /**
+     * Emits one structured access line for a completed request.
+     * Carries method, path/route, status, duration and request id.
+     * Never includes the body, query string or phone number.
+     */
+    public logAccess(
+        payload: {
+            requestId?: string;
+            method: string;
+            path: string;
+            status: number;
+            durationMs: number;
+        },
+    ): void {
+        const line = {
+            type: 'access',
+            requestId: payload.requestId,
+            method: payload.method,
+            path: payload.path,
+            status: payload.status,
+            durationMs: payload.durationMs,
+            timestamp: new Date().toISOString(),
+        };
+        console.log('[ACCESS]', JSON.stringify(line));
+    }
+
+    /**
      * Alerts on critical failures, typically triggering a PagerDuty/Slack webhook.
      * This fulfills the requirement for strict alerting on critical webhook failures.
      */
@@ -34,9 +60,6 @@ export class ObservabilityService {
         };
         
         console.error(`[CRITICAL ALERT] Immediate action required:`, JSON.stringify(payload, null, 2));
-        
-        // In a real scenario, this would POST to Sentry, Datadog, or an incident management webhook.
-        // We decouple the alerting mechanism here so it's fully unit-testable.
     }
 }
 
