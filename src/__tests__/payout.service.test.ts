@@ -313,12 +313,64 @@ describe('PayoutService', () => {
                     currentPayoutIndex: 0,
                     deadlineExtensionsUsed: 0,
                     payoutOrderLockedAt: null,
+                    currentCycleStart: null,
+                    currentCycleEnd: null,
                 },
             });
             expect(mockSendMessage).toHaveBeenCalledWith(
                 expect.any(String),
                 expect.stringContaining('Cycle 1 complete'),
             );
+        });
+
+        it('counts a contribution recorded after completion toward the next cycle status', async () => {
+            const group = {
+                id: 'g1',
+                name: 'Ajo Circle',
+                contributionAmount: 10,
+                currentPayoutIndex: 1,
+                totalCycles: 0,
+                currentCycleStart: new Date(2026, 0, 1),
+                currentCycleEnd: new Date(2026, 0, 8),
+                payoutOrder: ['u1', 'u2'],
+                members: [makeMember('u1', 'CREATOR'), makeMember('u2', 'MEMBER')],
+            };
+            prisma.savingsGroup.findUnique
+                .mockResolvedValueOnce(group) // executePayout's own lookup
+                .mockResolvedValueOnce({ ...group, currentPayoutIndex: 2 }); // completeCycle's lookup
+            prisma.payout.findFirst.mockResolvedValueOnce(null);
+            prisma.payout.create.mockResolvedValueOnce({ id: 'payout-2', recipientId: 'u2' });
+            prisma.groupMember.findMany.mockResolvedValue(group.members);
+
+            await payoutService.executePayout('g1');
+
+            expect(prisma.savingsGroup.update).toHaveBeenCalledWith({
+                where: { id: 'g1' },
+                data: expect.objectContaining({
+                    currentCycleStart: null,
+                    currentCycleEnd: null,
+                }),
+            });
+
+            // After completion, the window is cleared; a new contribution should be
+            // counted against the next cycle's status (all completed contributions).
+            const completedGroup = {
+                ...group,
+                currentPayoutIndex: 0,
+                totalCycles: 1,
+                currentCycleStart: null,
+                currentCycleEnd: null,
+            };
+            prisma.savingsGroup.findUnique.mockResolvedValueOnce(completedGroup);
+            prisma.contribution.findMany.mockResolvedValueOnce([
+                { userId: 'u1', status: 'COMPLETED' },
+                { userId: 'u2', status: 'COMPLETED' },
+            ]);
+
+            const status = await payoutService.getCycleContributionStatus('g1');
+
+            expect(status.allContributed).toBe(true);
+            expect(status.contributors).toEqual(expect.arrayContaining(['u1', 'u2']));
         });
 
         it('does not trigger a reset when members remain in the rotation', async () => {
