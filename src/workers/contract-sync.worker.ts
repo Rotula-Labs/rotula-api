@@ -12,6 +12,11 @@
  * but before the DB write, this worker will detect that the on-chain amount is
  * higher than the DB total and log a RECONCILIATION_MISMATCH event so an admin
  * can resolve it by writing the missing DB record.
+ *
+ * Pagination: each run scans at most one page of groups (bounded by
+ * RECONCILIATION_PAGE_SIZE) using a cursor, so a large tenant cannot
+ * monopolise the worker.  The cursor is persisted so the next run resumes
+ * where the previous one stopped.
  */
 import { Worker, Job } from 'bullmq';
 import { PrismaClient, Prisma } from '@prisma/client';
@@ -26,6 +31,9 @@ applyEncryptionMiddleware(prisma);
 const connection = { url: config.REDIS_URL };
 
 let workerInstance: Worker | null = null;
+
+/** Maximum number of groups scanned in a single reconciliation run. */
+export const RECONCILIATION_PAGE_SIZE = 50;
 
 export function startContractSyncWorker(): void {
     if (workerInstance) return;
@@ -68,17 +76,37 @@ export function startContractSyncWorker(): void {
 export async function runReconciliation(sorobanService: SorobanService): Promise<ReconciliationSummary> {
     const summary: ReconciliationSummary = { groupsScanned: 0, membersChecked: 0, mismatchesFound: 0, errors: [] };
 
-    // Only scan groups that have a fully deployed Soroban contract
+    // Resume from the last persisted cursor so a large population is scanned
+    // across several runs without missing a group.
+    const cursorState = await prisma.reconciliationCursor.findUnique({
+        where: { id: 'contract-sync' },
+    });
+    const cursor = cursorState?.lastGroupId ?? null;
+
+    // Only scan groups that have a fully deployed Soroban contract.
+    // Bounded by a finite `take` and ordered by id so the cursor is stable.
     const groups = await prisma.savingsGroup.findMany({
         where: {
             deploymentStatus: 'DEPLOYED',
             stellarContractId: { not: null },
         },
+        orderBy: { id: 'asc' },
+        take: RECONCILIATION_PAGE_SIZE,
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
         include: {
             members: {
                 include: { user: true },
             },
         },
+    });
+
+    // Persist the new cursor (last group id of this page) so the next run
+    // resumes after it.  If the page is empty, reset to the beginning.
+    const nextCursor = groups.length > 0 ? groups[groups.length - 1].id : null;
+    await prisma.reconciliationCursor.upsert({
+        where: { id: 'contract-sync' },
+        create: { id: 'contract-sync', lastGroupId: nextCursor },
+        update: { lastGroupId: nextCursor },
     });
 
     summary.groupsScanned = groups.length;
@@ -179,6 +207,7 @@ export async function runReconciliation(sorobanService: SorobanService): Promise
         membersChecked: summary.membersChecked,
         mismatchesFound: summary.mismatchesFound,
         errors: summary.errors.length,
+        nextCursor,
     });
 
     return summary;
@@ -189,6 +218,7 @@ export interface ReconciliationSummary {
     membersChecked: number;
     mismatchesFound: number;
     errors: string[];
+    nextCursor?: string | null;
 }
 
 export async function closeContractSyncWorker(): Promise<void> {
