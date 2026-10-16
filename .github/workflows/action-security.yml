@@ -1,0 +1,35 @@
+name: Action Security
+on:
+  pull_request:
+    paths:
+    - .github/**
+  schedule:
+  - cron: '0 4 * * 1'
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  zizmor:
+    name: Zizmor (pedantic)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 10
+    steps:
+    - name: Checkout
+      uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      with:
+        persist-credentials: false
+    # The pedantic persona applies zizmor's strictest audit rules, and the
+    # medium severity/confidence floors make the job fail on any finding
+    # at or above that threshold.
+    - name: Run zizmor
+      uses: zizmorcore/zizmor-action@85b2b9fb8e3325e7a23d7d0a9d7ba5ae0f999e3e # v0.7.1
+      with:
+        inputs: .github/workflows/
+        persona: pedantic
+        min-severity: medium
+        min-confidence: medium
+        advanced-security: false
