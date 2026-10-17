@@ -13,6 +13,7 @@ jest.mock('@prisma/client', () => {
         contribution: {
             create: jest.fn(),
             findMany: jest.fn(),
+            upsert: jest.fn(),
         }
     };
     return { PrismaClient: jest.fn(() => mPrismaClient) };
@@ -181,18 +182,31 @@ describe('GroupService', () => {
     describe('addContribution', () => {
         it('should log a new contribution', async () => {
             const mockContribution = { id: 'c1', amount: 50 };
-            prismaClientMock.contribution.create.mockResolvedValueOnce(mockContribution);
+            prismaClientMock.contribution.upsert.mockResolvedValueOnce(mockContribution);
 
             const result = await groupService.addContribution('u1', 'g1', '50', 'hash123');
 
-            expect(prismaClientMock.contribution.create).toHaveBeenCalledWith({
-                data: {
+            expect(prismaClientMock.contribution.upsert).toHaveBeenCalledWith({
+                where: {
+                    userId_groupId_cycleId: {
+                        userId: 'u1',
+                        groupId: 'g1',
+                        cycleId: expect.any(String),
+                    },
+                },
+                create: {
                     userId: 'u1',
                     groupId: 'g1',
+                    cycleId: expect.any(String),
                     amount: '50',
                     transactionHash: 'hash123',
                     status: 'COMPLETED'
-                }
+                },
+                update: {
+                    amount: '50',
+                    transactionHash: 'hash123',
+                    status: 'COMPLETED'
+                },
             });
             expect(result).toEqual(mockContribution);
         });
@@ -201,28 +215,41 @@ describe('GroupService', () => {
             await expect(groupService.addContribution('u1', 'g1', '0', 'hash123')).rejects.toThrow(
                 'Contribution amount must be a positive number greater than zero.',
             );
-            expect(prismaClientMock.contribution.create).not.toHaveBeenCalled();
+            expect(prismaClientMock.contribution.upsert).not.toHaveBeenCalled();
         });
 
         it('should reject a negative contribution amount', async () => {
             await expect(groupService.addContribution('u1', 'g1', '-10', 'hash123')).rejects.toThrow(
                 'Contribution amount must be a positive number greater than zero.',
             );
-            expect(prismaClientMock.contribution.create).not.toHaveBeenCalled();
+            expect(prismaClientMock.contribution.upsert).not.toHaveBeenCalled();
         });
 
         it('should reject a contribution amount with more than 7 decimal places', async () => {
             await expect(groupService.addContribution('u1', 'g1', '10.12345678', 'hash123')).rejects.toThrow(
                 'Amount cannot have more than 7 decimal places.',
             );
-            expect(prismaClientMock.contribution.create).not.toHaveBeenCalled();
+            expect(prismaClientMock.contribution.upsert).not.toHaveBeenCalled();
         });
 
         it('should reject a contribution amount exceeding 1,000,000 XLM', async () => {
             await expect(groupService.addContribution('u1', 'g1', '1000001', 'hash123')).rejects.toThrow(
                 'Amount exceeds the maximum allowed (1,000,000 XLM).',
             );
+            expect(prismaClientMock.contribution.upsert).not.toHaveBeenCalled();
+        });
+
+        it('should treat a retried contribution in the same cycle as an update, not a duplicate', async () => {
+            const mockContribution = { id: 'c1', amount: 50 };
+            prismaClientMock.contribution.upsert.mockResolvedValueOnce(mockContribution);
+
+            const first = await groupService.addContribution('u1', 'g1', '50', 'hash123');
+            const second = await groupService.addContribution('u1', 'g1', '50', 'hash123');
+
+            expect(prismaClientMock.contribution.upsert).toHaveBeenCalledTimes(2);
             expect(prismaClientMock.contribution.create).not.toHaveBeenCalled();
+            expect(first).toEqual(mockContribution);
+            expect(second).toEqual(mockContribution);
         });
     });
 

@@ -336,6 +336,19 @@ describe('MessageProcessor', () => {
             expect(mockLockOrderForCycle).toHaveBeenCalledWith('g1');
         });
 
+        it('treats a duplicate contribution for the same member and cycle as idempotent', async () => {
+            // Simulate the write path being reached twice for the same member/cycle.
+            // The second write must not surface an error to the user and must not
+            // append a second row; the service is expected to upsert/no-op.
+            mockAddContribution
+                .mockResolvedValueOnce({ id: 'c1' })
+                .mockResolvedValueOnce({ id: 'c1' });
+            await processor.processCommand('12345', 'CONTRIBUTE 10');
+            await processor.processCommand('12345', 'CONTRIBUTE 10');
+            expect(mockSendMessage).toHaveBeenCalledWith('12345', expect.stringContaining('contribute.success'));
+            expect(mockSendMessage).not.toHaveBeenCalledWith('12345', expect.stringContaining('contribute.failed'));
+        });
+
         it('shows usage when no args provided', async () => {
             await processor.processCommand('12345', 'CONTRIBUTE');
             expect(mockSendMessage).toHaveBeenCalledWith('12345', expect.stringContaining('contribute.usage'));
