@@ -21,15 +21,21 @@ jest.mock('../lib/prisma', () => ({
         memberExitLog: {
             create: jest.fn(),
         },
+        groupMember: {
+            update: jest.fn(),
+            findMany: jest.fn(),
+        },
     },
 }));
 
 jest.mock('../queue/contribution-scheduler.queue', () => ({
     removeGroupCycle: jest.fn().mockResolvedValue(undefined),
+    scheduleGroupCycle: jest.fn().mockResolvedValue(undefined),
 }));
 
 const { prisma } = require('../lib/prisma');
 const { removeGroupCycle } = require('../queue/contribution-scheduler.queue');
+const { scheduleGroupCycle } = require('../queue/contribution-scheduler.queue');
 
 function makeMember(userId: string, role: string, overrides: Record<string, any> = {}) {
     return {
@@ -86,6 +92,7 @@ describe('GroupExitService', () => {
         prisma.payout.findFirst.mockResolvedValue(null);
         prisma.groupMember.findMany.mockResolvedValue([]);
         (removeGroupCycle as jest.Mock).mockResolvedValue(undefined);
+        (scheduleGroupCycle as jest.Mock).mockResolvedValue(undefined);
 
         mockRefundMember = jest.fn().mockResolvedValue({ hash: 'refund_tx_1' });
         mockRemoveMemberFromOrder = jest.fn().mockResolvedValue([]);
@@ -262,6 +269,39 @@ describe('GroupExitService', () => {
             expect(result.groupPaused).toBe(false);
             expect(prisma.savingsGroup.update).not.toHaveBeenCalled();
             expect(removeGroupCycle).not.toHaveBeenCalled();
+        });
+
+        it('resumes a paused group when a new member joins and restores the reminder schedule', async () => {
+            const pausedGroup = makeGroup({
+                isPaused: true,
+                pausedAt: new Date(2026, 0, 10),
+                members: [makeMember('u1', 'CREATOR'), makeMember('u4', 'MEMBER')],
+            });
+            prisma.savingsGroup.findUnique.mockResolvedValueOnce(pausedGroup);
+
+            const result = await service.resumeGroup('g1');
+
+            expect(result.resumed).toBe(true);
+            expect(prisma.savingsGroup.update).toHaveBeenCalledWith({
+                where: { id: 'g1' },
+                data: {
+                    isPaused: false,
+                    pausedAt: null,
+                    resumedAt: expect.any(Date),
+                    resumeReason: expect.any(String),
+                },
+            });
+            expect(scheduleGroupCycle).toHaveBeenCalledWith('g1', 'MONTHLY');
+        });
+
+        it('does not resume a group that is not paused', async () => {
+            prisma.savingsGroup.findUnique.mockResolvedValueOnce(makeGroup());
+
+            const result = await service.resumeGroup('g1');
+
+            expect(result.resumed).toBe(false);
+            expect(prisma.savingsGroup.update).not.toHaveBeenCalled();
+            expect(scheduleGroupCycle).not.toHaveBeenCalled();
         });
     });
 

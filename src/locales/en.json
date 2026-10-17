@@ -6,8 +6,8 @@
     },
     "history": {
         "fetching": "[HISTORY] Fetching transaction history for {{phone}}...",
-        "header": "📜 Transaction History (Last 10):\n\n",
-        "item_sent": "{{index}}. ✅ Sent {{amount}} {{asset}} to {{counterparty}}\n   {{date}} • tx: {{hash}}",
+        "header": "🜜 Transaction History (Last 10):\n\n",
+        "item_sent": "{{index}}. ★ Sent {{amount}} {{asset}} to {{counterparty}}\n   {{date}} • tx: {{hash}}",
         "item_received": "{{index}}. 📥 Received {{amount}} {{asset}} from {{counterparty}}\n   {{date}} • tx: {{hash}}",
         "item_other": "{{index}}. 🔄 {{type}} ({{amount}} {{asset}})\n   {{date}} • tx: {{hash}}",
         "more": "\nReply HISTORY MORE to see older transactions",
@@ -30,12 +30,12 @@
     "request": {
         "usage": "Usage: REQUEST <amount> <@username or phone>",
         "no_user": "Error: Could not find user {{target}}.",
-        "notify_recipient": "🔔 [REQUEST] {{sender}} is requesting {{amount}} XLM from you.\n\nReply with:\nACCEPT {{requestId}} to approve (funds are held securely in escrow)\nDECLINE {{requestId}} to reject",
+        "notify_recipient": "🔕 [REQUEST] {{sender}} is requesting {{amount}} XLM from you.\n\nReply with:\nACCEPT {{requestId}} to approve (funds are held securely in escrow)\nDECLINE {{requestId}} to reject",
         "confirmation": "[REQUEST] Request for {{amount}} XLM sent to {{target}}."
     },
     "create_group": {
         "usage": "Usage: CREATE GROUP <name> <amount> <frequency>",
-        "success": "✅ Group \"{{name}}\" created!\nGroup ID: {{id}}",
+        "success": "✅ Group \" {{name}}\" created!\nGroup ID: {{id}}",
         "failed": "❌ Failed to create group: {{message}}"
     },
     "join_group": {
@@ -83,7 +83,7 @@
         "order_failed": "❌ Failed to update payout order: {{message}}",
         "order_invalid_member": "Error: Could not find user {{target}}.",
         "status": "*Payout Rotation for {{name}}*\nCycle: {{cycle}}\nNext up: {{next}}\n\n{{order}}",
-        "wait_success": "⏳ Deadline extended by 24 hours.",
+        "wait_success": "⚳ Deadline extended by 24 hours.",
         "wait_failed": "❌ Could not extend deadline: {{message}}",
         "proceed_success": "✅ Payout processed with the partial pool.",
         "proceed_failed": "❌ Could not process payout: {{message}}",
@@ -113,7 +113,7 @@
         "success": "✅ Successfully withdrew {{amount}} XLM from \"{{groupName}}\" pool! (MOCKED)"
     },
     "help": {
-        "text": "*Kolo Commands:*\n\n_Account_\nBALANCE\nBALANCE <asset>\nHISTORY\nPROFILE\n\n_Payments_\nSEND <amount> <@user>\nREQUEST <amount> <@user>\n\n_Savings Groups_\nCREATE GROUP <name> <amount> <frequency>\nJOIN GROUP <groupId>\nINVITE MEMBER <@user>\nGROUP STATUS\nCONTRIBUTE <amount>\nWITHDRAW <amount>\nLEAVE GROUP <groupId>\nKICK <@user> <groupId>\n\n_Payout Rotation_\nPAYOUT ORDER <@user1> <@user2> ...\nPAYOUT STATUS\nPAYOUT WAIT\nPAYOUT PROCEED\nPAYOUT SKIP <@user>\n\n_Support_\nHELP\nSUPPORT"
+        "text": "*Kolo Commands:*\n\n_Account_\nBALANCE\nBALANCE <asset>\nHISTORY\nPROFILE\n\n_Payments_\nSEND <amount> <@user>\nREQUEST <amount> <@user>\n\n_Savings Groups_\nCREATE GROUP <name> <amount> <frequency>\nJOIN GROUP <groupId>\nINVITE MEMBER <@user>\nGROUP STATUS\nCONTRIBUTE <amount>\nWITHDRAW <amount>\nLEAVE GROUP <groupId>\nKICK <@user> <groupId>\n\n_Payout Rotation_\nPAYOUT ORDER <@user1> <@user2> ...\nPAYOUT STATUS\nPAYOUT WAIT\nPAYOUT PROCEE0\nPAYOUT SKIP <@user>\n\n_Support_\nHELP\nSUPPORT"
     },
     "unknown": {
         "command": "I didn't understand that command. Send HELP to see available commands."

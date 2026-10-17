@@ -1,6 +1,7 @@
 import { WhatsAppService } from './whatsapp.service';
 import { StellarService } from './stellar.service';
 import { SorobanService } from './soroban.service';
+import { scheduleGroupReminder } from '../queue/group-reminder.queue';
 import * as StellarSdk from '@stellar/stellar-sdk';
 import { UserService } from './user.service';
 import { GroupService } from './group.service';
@@ -527,6 +528,18 @@ export class MessageProcessor {
         const groupId = args[0];
 
         try {
+            const group = await this.groupService.getGroupById(groupId);
+            if (group && (group as any).isPaused) {
+                const memberCount = group.members.length;
+                if (memberCount >= 2) {
+                    await this.groupService.resumeGroup(groupId, 'membership_restored');
+                    await scheduleGroupReminder(groupId, group.contributionFrequency);
+                    await this.whatsappService.sendMessage(
+                        from,
+                        t('join_group.resumed', lang, { name: group.name }),
+                    );
+                }
+            }
             await this.groupService.joinGroup(user.id, groupId);
             await this.whatsappService.sendMessage(from, t('join_group.success', lang));
         } catch (e: any) {
@@ -813,9 +826,6 @@ export class MessageProcessor {
 
         const group = memberships[0].group;
 
-        if ((group as any).isPaused) {
-            return await this.whatsappService.sendMessage(from, t('contribute.group_paused', lang, { groupName: group.name }));
-        }
 
         // Enforce exact match against the group's required contribution amount.
         // Savings circles (Ajo/Esusu) require every member to contribute the
@@ -823,6 +833,22 @@ export class MessageProcessor {
         // corrupt the payout schedule.
         const required = parseFloat(String(group.contributionAmount));
         const contributed = parseFloat(amountStr);
+        if (Math.abs(contributed - required) > Number.EPSILON) {
+            return await this.whatsappService.sendMessage(
+                from,
+                t('contribute.amount_mismatch', lang, { required: String(group.contributionAmount) }),
+            );
+        }
+
+        if ((group as any).isPaused) {
+            if (group.members.length >= 2) {
+                await this.groupService.resumeGroup(group.id, 'membership_restored');
+                await scheduleGroupReminder(group.id, group.contributionFrequency);
+            } else {
+                return await this.whatsappService.sendMessage(from, t('contribute.group_paused', lang, { groupName: group.name }));
+            }
+        }
+
         if (Math.abs(contributed - required) > Number.EPSILON) {
             return await this.whatsappService.sendMessage(
                 from,

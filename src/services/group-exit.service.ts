@@ -4,6 +4,7 @@ import { PayoutService } from './payout.service';
 import { SorobanService } from './soroban.service';
 import { WhatsAppService } from './whatsapp.service';
 import { removeGroupCycle } from '../queue/contribution-scheduler.queue';
+import { scheduleGroupCycle } from '../queue/contribution-scheduler.queue';
 import { config } from '../config/env';
 
 export type GroupExitErrorCode =
@@ -50,6 +51,10 @@ export class GroupExitService {
         this.payoutService = payoutService ?? new PayoutService();
         this.sorobanService = sorobanService ?? new SorobanService();
         this.whatsappService = whatsappService ?? new WhatsAppService();
+    }
+
+    public async resumeGroup(groupId: string): Promise<void> {
+        await this.resumeIfEligible(groupId);
     }
 
     public async leaveGroup(userId: string, groupId: string): Promise<ExitResult> {
@@ -225,6 +230,28 @@ export class GroupExitService {
             groupPaused,
             creatorTransferredTo,
         };
+    }
+
+    /**
+     * Clear a pause once membership is back at the 2-member minimum, and
+     * re-schedule the reminder job in the same operation so the paused flag
+     * and the job state cannot disagree.
+     */
+    private async resumeIfEligible(groupId: string): Promise<void> {
+        const group = await prisma.savingsGroup.findUnique({
+            where: { id: groupId },
+            include: { members: { where: { status: { not: 'LEFT' } } } },
+        });
+        if (!group || !group.isPaused) return;
+        if (group.members.length < 2) return;
+
+        await prisma.savingsGroup.update({
+            where: { id: group.id },
+            data: { isPaused: false, pausedAt: null, resumedAt: new Date() },
+        });
+        await scheduleGroupCycle(group.id, group.contributionFrequency).catch((e) =>
+            console.error(`Failed to resume scheduled reminders for group ${group.id}`, e),
+        );
     }
 
     private async notifyGroup(groupId: string, excludeUserId: string, message: string): Promise<void> {
