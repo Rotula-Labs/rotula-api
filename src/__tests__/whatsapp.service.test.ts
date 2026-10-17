@@ -1,3 +1,4 @@
+import { AxiosError } from 'axios';
 jest.mock('../config/env', () => ({
     config: {
         WHATSAPP_PHONE_NUMBER_ID: '1234567890',
@@ -48,6 +49,7 @@ describe('WhatsAppService.sendMessage', () => {
                     Authorization: 'Bearer test-whatsapp-token',
                     'Content-Type': 'application/json',
                 },
+                timeout: expect.any(Number),
             },
         );
     });
@@ -57,7 +59,34 @@ describe('WhatsAppService.sendMessage', () => {
 
         await expect(service.sendMessage('+2348000000000', 'Hello group')).resolves.toBeUndefined();
 
+        expect(mockedPost).toHaveBeenCalledTimes(3);
+        expect(consoleErrorSpy).toHaveBeenCalled();
+    });
+
+    it('retries a 5xx response with backoff and eventually resolves', async () => {
+        mockedPost
+            .mockRejectedValueOnce(new AxiosError('server error', 'ERR_BAD_RESPONSE', undefined, undefined, { status: 500 } as never))
+            .mockResolvedValueOnce({ status: 200 });
+
+        await expect(service.sendMessage('+2348000000000', 'Hello group')).resolves.toBeUndefined();
+
+        expect(mockedPost).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not retry a 400 response', async () => {
+        mockedPost.mockRejectedValueOnce(new AxiosError('bad request', 'ERR_BAD_REQUEST', undefined, undefined, { status: 400 } as never));
+
+        await expect(service.sendMessage('+2348000000000', 'Hello group')).resolves.toBeUndefined();
+
         expect(mockedPost).toHaveBeenCalledTimes(1);
+    });
+
+    it('retries a timeout and gives up after the bounded attempt count', async () => {
+        mockedPost.mockRejectedValue(new AxiosError('timeout', 'ECONNABORTED'));
+
+        await expect(service.sendMessage('+2348000000000', 'Hello group')).resolves.toBeUndefined();
+
+        expect(mockedPost).toHaveBeenCalledTimes(3);
         expect(consoleErrorSpy).toHaveBeenCalled();
     });
 });
