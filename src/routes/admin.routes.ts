@@ -1,15 +1,55 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { keyRotationQueue } from '../queue/key-rotation.queue';
+import { observabilityService } from '../services/observability.service';
 
 const router = Router();
 const prisma = new PrismaClient();
+
+const FAILED_AUTH_ALERT_THRESHOLD = 5;
+const FAILED_AUTH_WINDOW_MS = 60_000;
+
+const failedAuthAttempts = new Map<string, { count: number; windowStart: number }>();
+
+const recordFailedAuth = (source: string, requestId: string | undefined) => {
+    const now = Date.now();
+    const entry = failedAuthAttempts.get(source);
+
+    if (!entry || now - entry.windowStart > FAILED_AUTH_WINDOW_MS) {
+        failedAuthAttempts.set(source, { count: 1, windowStart: now });
+        return 1;
+    }
+
+    entry.count += 1;
+    return entry.count;
+};
 
 const adminAuth = (req: Request, res: Response, next: NextFunction) => {
     const authHeader = req.headers.authorization;
     const adminToken = process.env.ADMIN_TOKEN;
     
     if (!adminToken || !authHeader || authHeader !== `Bearer ${adminToken}`) {
+        const source = req.ip || req.socket?.remoteAddress || 'unknown';
+        const requestId = (req as Request & { id?: string }).id;
+        const failureCount = recordFailedAuth(source, requestId);
+
+        observabilityService.log('warn', 'Failed admin authentication attempt', {
+            source,
+            requestId,
+            failureCount,
+            path: req.originalUrl,
+            method: req.method,
+        });
+
+        if (failureCount >= FAILED_AUTH_ALERT_THRESHOLD) {
+            observabilityService.alert('critical', 'Repeated failed admin authentication', {
+                source,
+                requestId,
+                failureCount,
+                windowMs: FAILED_AUTH_WINDOW_MS,
+            });
+        }
+
         return res.status(401).json({ error: 'Unauthorized' });
     }
     
