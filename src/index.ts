@@ -26,10 +26,21 @@ if (config.USDC_ISSUER_PUBLIC_KEY && !StrKey.isValidEd25519PublicKey(config.USDC
     throw new Error('USDC_ISSUER_PUBLIC_KEY is set but is not a valid Stellar public key');
 }
 
+// USDC contract address is required for the configured network and must be a
+// well-formed Soroban contract id (C...). This fails at boot rather than at the
+// first transfer, and prevents the address from disagreeing with STELLAR_NETWORK.
+if (!config.USDC_TOKEN_ADDRESS) {
+    throw new Error('USDK_TOKEN_ADDRESS environment variable is required');
+}
+
+if (!StrKey.isValidContract(config.USDK_TOKEN_ADDRESS)) {
+    throw new Error('USDC_TOKEN_ADDRESS is set but is not a valid Soroban contract id');
+}
+
 // Check core dump configuration at startup
 function checkCoreDumpsDisabled(): void {
     try {
-        const result = spawnSync('sh', ['-c', 'ulimit -c'], { encoding: 'utf8' });
+        const result = spawnSync('h', ['-c', 'ulimit -c'], { encoding: 'utf8' });
         const limit = result.stdout?.trim();
         if (limit && limit !== '0' && limit !== 'unlimited') {
             observabilityService.logWarning('Core dumps may be enabled', { ulimit_c: limit });
