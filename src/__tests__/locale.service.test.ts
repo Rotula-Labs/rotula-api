@@ -200,4 +200,88 @@ describe('locale.service', () => {
             expect(result).toContain('2 items');
         });
     });
+
+    describe('checkKeys', () => {
+        it('should pass for a correct locale file', async () => {
+            const { checkKeys } = await import('../services/locale.service');
+            const en = {
+                greeting: 'Hello {{name}}',
+                farewell: 'Bye',
+            };
+            const fr = {
+                greeting: 'Bonjour {{name}}',
+                farewell: 'Au revoir',
+            };
+            expect(checkKeys(en, { fr })).toEqual([]);
+        });
+
+        it('should report a locale-only key', async () => {
+            const { checkKeys } = await import('../services/locale.service');
+            const en = {
+                greeting: 'Hello',
+            };
+            const fr = {
+                greeting: 'Bonjour',
+                extra: 'Surplus',
+            };
+            const issues = checkKeys(en, { fr });
+            expect(issues.length).toBe(1);
+            expect(issues[0]).toContain('extra');
+            expect(issues[0]).toContain('fr');
+        });
+
+        it('should report a missing key', async () => {
+            const { checkKeys } = await import('../services/locale.service');
+            const en = {
+                greeting: 'Hello',
+                farewell: 'Bye',
+            };
+            const fr = {
+                greeting: 'Bonjour',
+            };
+            const issues = checkKeys(en, { fr });
+            expect(issues.length).toBe(1);
+            expect(issues[0]).toContain('farewell');
+            expect(issues[0]).toContain('fr');
+        });
+
+        it('should report a placeholder mismatch naming the key and placeholder', async () => {
+            const { checkKeys } = await import('../services/locale.service');
+            const en = {
+                'rate_limit.exceeded': 'Slow down, try again in {{remainingSeconds}}s',
+            };
+            const fr = {
+                'rate_limit.exceeded': 'Tor vit, mais patientez',
+            };
+            const issues = checkKeys(en, { fr });
+            expect(issues.length).toBe(1);
+            expect(issues[0]).toContain('rate_limit.exceeded');
+            expect(issues[0]).toContain('remainingSeconds');
+        });
+
+        it('should report an extra placeholder in the translation', async () => {
+            const { checkKeys } = await import('../services/locale.service');
+            const en = {
+                greeting: 'Hello {{name}}',
+            };
+            const fr = {
+                greeting: 'Bonjour {{name}} {{extra}}',
+            };
+            const issues = checkKeys(en, { fr });
+            expect(issues.length).toBe(1);
+            expect(issues[0]).toContain('greeting');
+            expect(issues[0]).toContain('extra');
+        });
+
+        it('should not report when placeholders are in a different order', async () => {
+            const { checkKeys } = await import('../services/locale.service');
+            const en = {
+                msg: '{{a}} {{b}}',
+            };
+            const fr = {
+                msg: '{{b}} {{a}}',
+            };
+            expect(checkKeys(en, { fr })).toEqual([]);
+        });
+    });
 });
