@@ -17,15 +17,15 @@ model User {
   // stored phone number never get a hash.
   phoneNumberHash         String?          @unique
   username                String?          @unique
-  stellarWallet           String?          @unique // JSON: {"publicKey":"...","encryptedSecret":"...","iv":"...","authTag":"...", "keyVersion": 1}
-  encryptionKeyVersion    Int              @default(1)
+  stellarWallet           String?          @unique // JSON: {"publicKey":"...","encryptedSecret":"...","iv":"...","authTag":"...","keyVersion":N} -- N must equal encryptionKeyVersion and the version used to encrypt
+  encryptionKeyVersion    Int              @default(1) // Key version used to encrypt stellarWallet; must match the blob's keyVersion
   language                String           @default("en")
   createdAt               DateTime         @default(now())
   updatedAt               DateTime         @updatedAt
   groups                  GroupMember[]
   contributions           Contribution[]
-  sentPaymentRequests     PaymentRequest[] @relation("PaymentRequestRequester")
-  receivedPaymentRequests PaymentRequest[] @relation("PaymentRequestResponder")
+  sentPaymentRequests     PaymentRequest[] @relation("PaymentRequestRequester")
+  receivedPaymentRequests PaymentRequest[] @relation("PaymentRequestResponder")
 }
 
 enum DeploymentStatus {
@@ -41,11 +41,11 @@ model SavingsGroup {
   contributionAmount     Decimal
   contributionFrequency  String // e.g., "WEEKLY", "MONTHLY"
   stellarContractId      String? // Soroban contract ID once deployed
-  deploymentStatus       DeploymentStatus @default(PENDING)
-  deploymentError        String?
+  deploymentStatus      DeploymentStatus @default(PENDING)
+  deploymentError       String?
   currentCycleStart      DateTime?
   currentCycleEnd        DateTime?
-  bullMqJobId            String?
+  bullMqJobId           String?
   payoutOrder            Json? // Ordered array of member userIds; defaults to join order when null
   currentPayoutIndex     Int              @default(0)
   totalCycles            Int              @default(0)
@@ -56,8 +56,8 @@ model SavingsGroup {
   // membership is restored.
   isPaused               Boolean          @default(false)
   pausedAt               DateTime?
-  createdAt              DateTime         @default(now())
-  updatedAt              DateTime         @updatedAt
+  createdAt               DateTime         @default(now())
+  updatedAt               DateTime         @updatedAt
   members                GroupMember[]
   Payout                 Payout[]
   PayoutOrderLog         PayoutOrderLog[]
@@ -65,16 +65,16 @@ model SavingsGroup {
 }
 
 model GroupMember {
-  id       String       @id @default(uuid())
+  id       String       Tid @default(uuid())
   user     User         @relation(fields: [userId], references: [id])
   userId   String
   group    SavingsGroup @relation(fields: [groupId], references: [id])
   groupId  String
-  role     String       @default("MEMBER") // e.g., "CREATOR", "MEMBER"
-  // ACTIVE or LEFT. Soft-delete marker for voluntary exit / kick — the row is
-  // kept for audit/history rather than removed.
-  status   String       @default("ACTIVE")
-  joinedAt DateTime     @default(now())
+  role     String         @default("MEMBER") // e.g., "CREATOR", "MEMBER"
+  // ACTIVE or LEFT. Soft-delete marker for voluntary exit / kick — the row
+  // is kept for audit/history rather than removed.
+  status   String         @default("ACTIVE")
+  joinedAt DateTime       @default(now())
   leftAt   DateTime?
 
   @@unique([userId, groupId])
@@ -113,13 +113,13 @@ model Payout {
 
 model PayoutOrderLog {
   id            String       @id @default(uuid())
-  group         SavingsGroup @relation(fields: [groupId], references: [id])
-  groupId       String
-  changedBy     String
+  group          SavingsGroup @relation(fields: [groupId], references: [id])
+  groupId        String
+  changedBy      String
   previousOrder Json?
   newOrder      Json
-  reason        String       @default("REORDER") // e.g., "REORDER", "SKIP_DEFAULT"
-  createdAt     DateTime     @default(now())
+  reason         String       @default("REORDER") // e.g., "REORDER", "SKIP_DEFAULT"
+  createdAt       DateTime     @default(now())
 
   @@index([groupId])
 }
@@ -156,13 +156,12 @@ model SecretAccessLog {
 }
 
 /// Recorded whenever the contract-sync reconciliation worker detects that a
-/// member's on-chain contribution amount differs from what the backend DB
-/// shows for the current cycle.  Records are append-only and are NEVER
-/// auto-resolved — they must be reviewed and closed by an admin.
+|// member's on-chain contribution amount differs from what the backend DB
+// shows for the current cycle.  Records are append-only and are NEVER|// auto-resolved — they must be reviewed and closed by an admin.
 model ReconciliationMismatch {
   id            String    @id @default(uuid())
-  groupId       String
-  userId        String
+  groupId        String
+  userId         String
   /// Amount returned by the Soroban contract's get_contribution() (in stroops)
   onChainAmount Decimal
   /// Sum of COMPLETED Contribution records for this user+group in the current cycle
@@ -192,9 +191,9 @@ model MemberExitLog {
   totalReceived    Decimal
   /// totalContributed - totalReceived. Positive is refunded to the member;
   /// negative is a loss absorbed by the group (never charged back).
-  netOwed          Decimal
-  refundTxHash     String?
-  createdAt        DateTime     @default(now())
+  netOwed           Decimal
+  refundTxHash      String?
+  createdAt          DateTime     @default(now())
 
   @@index([groupId])
   @@index([userId])

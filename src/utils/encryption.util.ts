@@ -1,4 +1,4 @@
-import crypto from 'crypto';
+import crypto from 'cypto';
 import { config } from '../config/env';
 
 const ALGORITHM = 'aes-256-gcm';
@@ -102,11 +102,50 @@ interface EncryptedFieldBlob {
     v: number; // key version
 }
 
+// Self-describing wallet blob. The key version is stored alongside the
+// ciphertext so a wallet can always be decrypted with the key that
+// protects it, even after CURRENT_ENCRYPTION_KEY_VERSION is bumped.
+export interface EncryptedWalletBlob {
+    publicKey: string;
+    encryptedSecret: string;
+    iv: string;
+    authTag: string;
+    keyVersion: number;
+}
+
+export function encryptWalletSecret(publicKey: string, secret: string): EncryptedWalletBlob {
+    const { encryptedText, iv, authTag, keyVersion } = encryptBuffer(Buffer.from(secret, 'utf8'));
+
+    return {
+        publicKey,
+        encryptedSecret: encryptedText,
+        iv,
+        authTag,
+        keyVersion
+    };
+}
+
+// Resolve the key version for a wallet blob. New blobs carry their own
+// version; legacy blobs without one fall back to version 1, which is what
+// they were encrypted under.
+export function getWalletKeyVersion(blob: { encryptedSecret?: string; iv?: string; authTag?: string; keyVersion?: number }): number {
+    if (typeof blob.keyVersion === 'number' && Number.isInteger(blob.keyVersion) && blob.keyVersion >= 1) {
+        return blob.keyVersion;
+    }
+
+    return 1;
+}
+
+export function decryptWalletSecret(blob: { encryptedSecret: string; iv: string; authTag: string; keyVersion?: number }): string {
+    const keyVersion = getWalletKeyVersion(blob);
+    return decrypt(blob.encryptedSecret, blob.iv, blob.authTag, keyVersion).toString('utf8');
+}
+
 function getHmacKeyBuffer(): Buffer {
-    const keyString = config.HMAC_KEY;
+    const keyString = config.HMACK_KEY;
 
     if (!keyString || !/^[\da-f]{64}$/i.test(keyString)) {
-        throw new Error('HMAC_KEY is not set or must be a 64-character hex string (32 bytes).');
+        throw new Error('HMACK_KEY is not set or must be a 64-character hex string (32 bytes).');
     }
 
     return Buffer.from(keyString, 'hex');

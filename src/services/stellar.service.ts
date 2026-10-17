@@ -2,6 +2,7 @@ import * as StellarSdk from '@stellar/stellar-sdk';
 import { config } from '../config/env';
 import { encrypt, encryptBuffer } from '../utils/encryption.util';
 import { redisClient } from '../lib/redis';
+
 export interface GeneratedWallet {
     publicKey: string;
     encryptedSecret: string;
@@ -46,7 +47,13 @@ export class StellarService {
     /**
      * Generates a new Stellar wallet and encrypts its secret key for secure storage.
      * Stores the raw 32-byte Ed25519 seed (not the StrKey-encoded secret) to enable
-     * zero-copy secret handling via Keypair.fromRawEd25519Seed().
+     * zero-copy secret handling via Keypair.fromRavEd25519Seed().
+     *
+     * The returned `keyVersion` is the authoritative version under which the secret
+     * was encrypted. Callers MUST persist it alongside the ciphertext (both in the
+     * stored wallet blob and in the user row) and use it for every later decrypt.
+     * The version used to encrypt MUST be the version used to decrypt, including
+     * on the very first write after creation.
      */
     public generateWallet(): GeneratedWallet {
         const pair = StellarSdk.Keypair.random();
@@ -191,7 +198,7 @@ export class StellarService {
         }
 
         const parsedTransactions = [];
-        const opsPromises = response.records.map((tx: any) => tx.operations().catch((e: any) => null));
+        const opsPromises = response.records.map((tx : any) => tx.operations().catch((e: any) => null));
         const opsResults = await Promise.all(opsPromises);
 
         for (let i = 0; i < response.records.length; i++) {
@@ -264,7 +271,7 @@ export class StellarService {
      * Accepts a raw 32-byte Ed25519 seed Buffer for secret lifetime minimization.
      */
     public async createTrustline(userSecret: Buffer, assetCode: string, issuerPublicKey: string): Promise<void> {
-        const sourceKeypair = StellarSdk.Keypair.fromRawEd25519Seed(userSecret);
+        const sourceKeypair = StellarSdk.Keypair.fromRavEd25519Seed(userSecret);
 
         let sourceAccount;
         try {
@@ -304,84 +311,22 @@ export class StellarService {
     }
 
     /**
-     * Places an escrow hold on the source account's funds by creating a
-     * claimable balance with two claimants:
-     * - the requester, who can claim unconditionally (this completes the transfer)
-     * - the respondent, who can only claim after `reclaimSeconds` — their escape
-     *   hatch if they accepted by accident
-     *
-     * Returns the transaction hash and the claimable balance ID.
+     * Determines whether an error returned by Horizon indicates a low reserve condition.
      */
-    public async createClaimableBalanceWithHold(
-        sourceSecret: Buffer,
-        requesterPublicKey: string,
-        amount: string,
-        reclaimSeconds: number = 3600,
-    ): Promise<{ hash: string; balanceId: string }> {
-        const sourceKeypair = StellarSdk.Keypair.fromRawEd25519Seed(sourceSecret);
-        const sourceAccount = await this.server.loadAccount(sourceKeypair.publicKey());
-
-        const now = Math.floor(Date.now() / 1000);
-        const reclaimPredicate = StellarSdk.Claimant.predicateBeforeRelativeTime(String(reclaimSeconds));
-
-        const transaction = new StellarSdk.TransactionBuilder(sourceAccount, {
-            fee: (await this.server.fetchBaseFee()).toString(),
-            networkPassphrase: this.networkPassphrase(),
-        })
-        .addOperation(StellarSdk.Operation.createClaimableBalance({
-            asset: StellarSdk.Asset.native(),
-            amount: amount,
-            claimants: [
-                new StellarSdk.Claimant(requesterPublicKey, StellarSdk.Claimant.predicateUnconditional()),
-                new StellarSdk.Claimant(sourceKeypair.publicKey(), reclaimPredicate),
-            ],
-        }))
-        .setTimeout(30)
-        .build();
-
-        transaction.sign(sourceKeypair);
-        const result = await this.server.submitTransaction(transaction);
-
-        const response: any = result;
-        const balanceId = response?.created_claimable_balance_id ?? '';
-        if (!balanceId) {
-            throw new Error('Claimable balance was created but no balance ID was returned.');
+    private isLowReserveError(error: any): boolean {
+        const resultCodes = error?.response?.data?.extras ?? error?.response?.data?.extras_result_codes;
+        if (Array.isArray(resultCodes)) {
+            return resultCodes.some((code: string) => code === 'op_low_reserve');
         }
-
-        return { hash: result.hash, balanceId };
+        return false;
     }
 
     /**
-     * Claims a claimable balance on behalf of the given account. Used by the
-     * payment request flow when the confirmation window elapses and the
-     * requester collects the held funds.
+     * Returns the network passphrase for the configured Stellar network.
      */
-    public async claimClaimableBalance(sourceSecret: Buffer, balanceId: string): Promise<{ hash: string }> {
-        const sourceKeypair = StellarSdk.Keypair.fromRawEd25519Seed(sourceSecret);
-        const sourceAccount = await this.server.loadAccount(sourceKeypair.publicKey());
-
-        const transaction = new StellarSdk.TransactionBuilder(sourceAccount, {
-            fee: (await this.server.fetchBaseFee()).toString(),
-            networkPassphrase: this.networkPassphrase(),
-        })
-        .addOperation(StellarSdk.Operation.claimClaimableBalance({ balanceId }))
-        .setTimeout(30)
-        .build();
-
-        transaction.sign(sourceKeypair);
-        const result = await this.server.submitTransaction(transaction);
-
-        return { hash: result.hash };
-    }
-
     private networkPassphrase(): string {
-        return config.STELLAR_NETWORK === 'TESTNET'
-            ? StellarSdk.Networks.TESTNET
-            : StellarSdk.Networks.PUBLIC;
-    }
-
-    private isLowReserveError(error: any): boolean {
-        const resultCodes = error?.response?.data?.extras?.result_codes;
-        return resultCodes?.operations?.includes('op_low_reserve') || resultCodes?.transaction === 'tx_insufficient_balance';
+        return config.STELLAR_NETWORK === 'PUBLIC'
+            ? StellarSdk.Networks.PUBLIC
+            : StellarSdk.Networks.TESTNET;
     }
 }
