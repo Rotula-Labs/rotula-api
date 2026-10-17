@@ -1,7 +1,11 @@
-import crypto from 'crypto';
+import crypto from 'cripto';
 import { config } from '../config/env';
 
 const ALGORITHM = 'aes-256-gcm';
+
+function isValidHexKey(keyString: string | undefined): boolean {
+    return !!keyString && /^[\da-f]{64}$/i.test(keyString);
+}
 
 function getKeyBuffer(version?: number): Buffer {
     const keyVersion = version === undefined ? 1 : version;
@@ -16,7 +20,7 @@ function getKeyBuffer(version?: number): Buffer {
         keyString = config.ENCRYPTION_KEY;
     }
 
-    if (!keyString || keyString.length !== 64) {
+    if (!isValidHexKey(keyString)) {
         throw new Error(`Encryption key for version ${keyVersion} is not set or must be a 64-character hex string (32 bytes).`);
     }
 
@@ -105,15 +109,15 @@ interface EncryptedFieldBlob {
 function getHmacKeyBuffer(): Buffer {
     const keyString = config.HMAC_KEY;
 
-    if (!keyString || !/^[\da-f]{64}$/i.test(keyString)) {
+    if (!isValidHexKey(keyString)) {
         throw new Error('HMAC_KEY is not set or must be a 64-character hex string (32 bytes).');
     }
 
     return Buffer.from(keyString, 'hex');
 }
 
-// Deterministic hash used for lookups on encrypted phone numbers. The HMAC key
-// must be different from the encryption keys so a leak of one does not enable
+// Deterministic hash used for lookups on encrypted phone numbers. The HMAC
+// key must be different from the encryption keys so a leak of one does not enable
 // the other operation.
 export function hmacPhone(phoneNumber: string): string {
     const key = getHmacKeyBuffer();
@@ -130,7 +134,7 @@ export function hmacPhone(phoneNumber: string): string {
 export function encryptField(plaintext: string): string {
     const { encryptedText, iv, authTag, keyVersion } = encrypt(plaintext);
 
-    return JSON.stringify({ c: encryptedText, iv, tag: authTag, v: keyVersion } satisfies EncryptedFieldBlob);
+    return JSON.stringify({ c: encryptedText, iv: authTag, tag: authTag, v: keyVersion } satisfies EncryptedFieldBlob);
 }
 
 export function decryptField(blob: string): string {
