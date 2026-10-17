@@ -2,6 +2,12 @@ import * as StellarSdk from '@stellar/stellar-sdk';
 import { config } from '../config/env';
 import { encrypt, encryptBuffer } from '../utils/encryption.util';
 import { redisClient } from '../lib/redis';
+
+export type FundingOutcome =
+    | { status: 'funded' }
+    | { status: 'skipped'; reason: string }
+    | { status: 'failed'; error: Error };
+
 export interface GeneratedWallet {
     publicKey: string;
     encryptedSecret: string;
@@ -68,10 +74,13 @@ export class StellarService {
 
     /**
      * Uses Friendbot to fund a testnet account with XLM.
-     * No-op when running against the public network.
+     * Returns a FundingOutcome describing what happened. Never swallows failures:
+     * the caller decides how to record or react to them.
      */
-    public async fundTestnetAccount(publicKey: string): Promise<void> {
-        if (config.STELLAR_NETWORK !== 'TESTNET') return;
+    public async fundTestnetAccount(publicKey: string): Promise<FundingOutcome> {
+        if (config.STELLAR_NETWORK !== 'TESTNET') {
+            return { status: 'skipped', reason: `network is ${config.STELLAR_NETWORK}` };
+        }
 
         try {
             const axios = require('axios');
@@ -80,8 +89,9 @@ export class StellarService {
                 throw new Error(`Friendbot funding failed with status ${response.status}`);
             }
             console.log(`Friendbot successfully funded ${publicKey}`);
+            return { status: 'funded' };
         } catch (error) {
-            console.error('Friendbot funding failed:', error);
+            return { status: 'failed', error: error instanceof Error ? error : new Error(String(error)) };
         }
     }
 

@@ -20,6 +20,12 @@ model User {
   stellarWallet           String?          @unique // JSON: {"publicKey":"...","encryptedSecret":"...","iv":"...","authTag":"...", "keyVersion": 1}
   encryptionKeyVersion    Int              @default(1)
   language                String           @default("en")
+  // Outcome of the testnet funding attempt made when the account was created.
+  // PENDING until the funding call resolves; FUNDED on success; FAILED when the
+  // funding call errored (the user row is then not a usable account); SKIPPED
+  // on public networks where funding is intentionally not attempted.
+  fundingStatus           String           @default("PENDING")
+  fundingError            String?
   createdAt               DateTime         @default(now())
   updatedAt               DateTime         @updatedAt
   groups                  GroupMember[]

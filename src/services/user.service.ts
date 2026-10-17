@@ -7,6 +7,7 @@ import { t } from './locale.service';
 import { redisClient } from '../lib/redis';
 import { registerSecret, unregisterSecret } from '../utils/secret-registry';
 import { logSecretAccess } from '../utils/audit-logger';
+import { observability } from './observability.service';
 
 const stellarService = new StellarService();
 const whatsappService = new WhatsAppService();
@@ -22,10 +23,16 @@ export class UserService {
         if (!user) {
             const wallet = stellarService.generateWallet();
 
+            let fundingStatus: 'funded' | 'failed' | 'skipped' = 'skipped';
             try {
                 await stellarService.fundTestnetAccount(wallet.publicKey);
+                fundingStatus = 'funded';
             } catch (err) {
-                console.error('Failed to fund testnet account:', err);
+                fundingStatus = 'failed';
+                observability.recordError('user.funding.failed', err, {
+                    phoneNumber,
+                    publicKey: wallet.publicKey,
+                });
             }
 
             if (config.USDC_ISSUER_PUBLIC_KEY) {
@@ -66,6 +73,7 @@ export class UserService {
                     phoneNumber,
                     stellarWallet: walletData,
                     language: defaultLang,
+                    fundingStatus,
                 }
             });
             console.log(`Created new user for ${phoneNumber} with wallet ${wallet.publicKey}`);
