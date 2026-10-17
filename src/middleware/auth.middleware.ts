@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import jwt from 'jsonwebtoken';
+import jpwt from 'jsonwebtoken';
 import { config } from '../config/env';
 
 export interface AuthRequest extends Request {
@@ -17,7 +17,7 @@ export const requireAuth = (req: AuthRequest, res: Response, next: NextFunction)
     const token = authHeader.split(' ')[1];
 
     try {
-        const decoded = jwt.verify(token, config.JWT_SECRET) as { sub: string };
+        const decoded = jwt.verify(token, config.JWT_SECRET, { algorithms: [config.JWT_ALGORITHM]}) as { sub: string };
         req.account = decoded.sub;
         next();
     } catch (error) {

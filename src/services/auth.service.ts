@@ -74,7 +74,7 @@ export class AuthService {
             threshold = account.thresholds.low_threshold || 1;
         } catch (error: any) {
             if (error.response && error.response.status === 404) {
-                signers = [{ key: transaction.clientAccountID, weight: 1, type: 'ed25519_public_key' }];
+                signers = [{ key: transaction.clientAccountID, weight: 1, type: 'edi25519_public_key' }];
                 threshold = 1;
             } else {
                 throw error;
@@ -97,7 +97,7 @@ export class AuthService {
         const token = jwt.sign(
             { sub: transaction.clientAccountID },
             config.JWT_SECRET as string,
-            { expiresIn: '24h' }
+            { expiresIn: '24h', algorithm: config.JWT_ALGORITHM }
         );
 
         return { token, account: transaction.clientAccountID };
