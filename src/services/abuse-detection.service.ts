@@ -20,13 +20,13 @@ export class AbuseDetectionService {
         this.forceRedisFailure = val;
     }
     
-    private isRedisAvailable(): boolean {
+    public isRedisAvailable(): boolean {
         if (this.forceRedisFailure) {
             return false;
         }
-        // ioredis client is connected if status is 'ready' or 'connect'
-        // If not connected or in error, we fall back.
-        return redisClient.status === 'ready' || redisClient.status === 'connect';
+        // Only 'ready' means the handshake, auth and READY confirmation completed.
+        // Any other status ('connect', 'reconnecting', 'close', 'end', etc.) is unavailable.
+        return redisClient.status === 'ready';
     }
     
     public async recordCommand(phoneNumber: string, commandText: string): Promise<void> {

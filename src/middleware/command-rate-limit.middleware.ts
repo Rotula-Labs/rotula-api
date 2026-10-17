@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { prisma } from '../lib/prisma';
-import { redisClient } from '../lib/redis';
+import { redisClient, isRedisReady } from '../lib/redis';
 import { WhatsAppService } from '../services/whatsapp.service';
 import { t, initI18n } from '../services/locale.service';
 import { abuseDetectionService } from '../services/abuse-detection.service';
@@ -113,9 +113,8 @@ async function checkLimit(
     let useInMemory = forceRedisFailure;
 
     if (!useInMemory) {
-        // Check if Redis client is connected (ready or connect status)
-        const isReady = redisClient.status === 'ready' || redisClient.status === 'connect';
-        if (!isReady) {
+        // Only a fully ready Redis can serve commands; treat all other states as unavailable
+        if (!isRedisReady()) {
             useInMemory = true;
             console.warn('Redis is not connected. Falling back to in-memory rate limiting.');
         }
