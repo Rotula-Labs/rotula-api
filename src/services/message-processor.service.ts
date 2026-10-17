@@ -377,12 +377,27 @@ export class MessageProcessor {
             return await this.whatsappService.sendMessage(from, t(amountError, lang));
         }
         const target = args[1];
+        const requester = await this.userService.getOrCreateUser(from);
+        if (!requester) {
+            return await this.whatsappService.sendMessage(
+                from,
+                t('request.no_user', lang, { target: from }),
+            );
+        }
+
 
         const recipient = await this.userService.resolveUser(target);
         if (!recipient) {
             return await this.whatsappService.sendMessage(
                 from,
                 t('request.no_user', lang, { target }),
+            );
+        }
+
+        if (!recipient.stellarWallet) {
+            return await this.whatsappService.sendMessage(
+                from,
+                t('payment_request.error_unreadable_wallet', lang),
             );
         }
 
@@ -396,6 +411,9 @@ export class MessageProcessor {
         } catch (error: any) {
             if (error instanceof PaymentRequestError && error.code === 'too_many_pending') {
                 return await this.whatsappService.sendMessage(from, t('payment_request.error_too_many_pending', lang));
+            }
+            if (error instanceof PaymentRequestError) {
+                return await this.whatsappService.sendMessage(from, t(`payment_request.error_${error.code}`, lang));
             }
             throw error;
         }
