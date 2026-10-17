@@ -122,6 +122,8 @@ Apply Prisma migrations and generate the Prisma client for your development data
 
 ## Environment Variables Reference
 
+An example environment file lives at [`.env.example`](.env.example). It mirrors the table below, groups variables by the same areas, and marks which values startup requires. Copy it to a local `.env` and fill in your own values; never commit real credentials.
+
 Copy the required values into a local `.env` (never committed). Grouped by area:
 
 | Variable                                                                            | Area     | Purpose                                                   |
@@ -146,6 +148,8 @@ Copy the required values into a local `.env` (never committed). Grouped by area:
 | `MAX_PAYOUT_DEADLINE_EXTENSIONS`                                                    | Rules    | Upper bound on payout deadline extensions                 |
 
 Every value above is a placeholder in your own configuration; none is committed. See [Security Notes](#security-notes) for how secrets are handled.
+
+Keep `.env.example` and this table in sync: when a variable is added, removed, or changes its required status, update both.
 
 ## Current status and limitations
 
