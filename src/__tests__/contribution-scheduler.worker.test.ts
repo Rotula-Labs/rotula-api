@@ -7,6 +7,8 @@ import { Job } from 'bullmq';
 
 jest.mock('@prisma/client', () => {
     const mockPrisma = {
+        // lib/prisma registers the encryption middleware on construction.
+        $use: jest.fn(),
         savingsGroup: {
             update: jest.fn(),
             findUnique: jest.fn()

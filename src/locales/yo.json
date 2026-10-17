@@ -96,6 +96,7 @@
     "exceeded": "⚠️ O n kọlu awọn ibeere pupọ ju. Jọwọ duro fun iṣẹju-aaya {{remainingSeconds}}."
   },
   "wallet": {
+    "unreadable": "⚠️ A kò le kà ápamọ́wọ́ rẹ tí a fipamọ́. Jọ̀wọ́ ṣètò ápamọ́wọ́ tuntun tàbí kàn sí àtìlẹ́yìn.",
     "usdc_trustline_low_reserve": "O nílò ó kéré tán 2 XLM nínú àpamọ́wọ́ rẹ láti mú USDC ṣiṣẹ́."
   }
 }

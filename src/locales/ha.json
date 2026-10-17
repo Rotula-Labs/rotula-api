@@ -107,6 +107,7 @@
     "success": "✅ An canza harshe cikin nasara!"
   },
   "wallet": {
+    "unreadable": "⚠️ Ba mu iya karanta walat ɗinka da aka adana ba. Don Allah saita sabon walat ko tuntuɓi tallafi.",
     "usdc_trustline_low_reserve": "Kuna buƙatar aƙalla XLM 2 a cikin walat ɗinku don kunna USDC."
   }
 }

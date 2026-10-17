@@ -107,6 +107,7 @@
     "success": "✅ You don change language successfully!"
   },
   "wallet": {
+    "unreadable": "⚠️ We no fit read the wallet wey you save. Abeg set up a new wallet or contact support.",
     "usdc_trustline_low_reserve": "You need at least 2 XLM for your wallet make you fit use USDC."
   }
 }
