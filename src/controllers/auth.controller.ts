@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { authService } from '../services/auth.service';
+import { observabilityService } from '../services/observability.service';
 
 export const getChallenge = (req: Request, res: Response) => {
     try {
@@ -30,7 +31,11 @@ export const getToken = async (req: Request, res: Response) => {
         const { token, account } = await authService.verifyChallengeAndGenerateToken(transaction);
         res.json({ token, account });
     } catch (error: any) {
-        console.error('Error verifying challenge:', error);
-        res.status(401).json({ error: error.message || 'Invalid challenge transaction' });
+        const requestId = req.headers['x-request-id'] || (req as any).id;
+        observabilityService.logError('Challenge verification failed', error, {
+            requestId,
+            error: error instanceof Error ? error.message : String(error),
+        });
+        res.status(401).json({ error: 'Invalid challenge transaction' });
     }
 };
