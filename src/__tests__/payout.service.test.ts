@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, PayoutOrderLogReason } from '@prisma/client';
 import {
     PayoutService,
     PayoutOrderLockedError,
@@ -28,7 +28,7 @@ jest.mock('@prisma/client', () => {
         },
         $transaction: jest.fn((ops: any[]) => Promise.resolve(ops)),
     };
-    return { PrismaClient: jest.fn(() => mPrismaClient), Prisma: { Decimal } };
+    return { PrismaClient: jest.fn(() => mPrismaClient), Prisma: { Decimal }, PayoutOrderLogReason: { REORDER: 'REORDER', SKIP_DEFAULT: 'SKIP_DEFAULT' } };
 });
 
 jest.mock('../queue/contribution-scheduler.queue', () => ({
@@ -153,7 +153,7 @@ describe('PayoutService', () => {
                     changedBy: 'u1',
                     previousOrder: ['u1', 'u2', 'u3'], // default join order since payoutOrder was null
                     newOrder: ['u3', 'u1', 'u2'],
-                    reason: 'REORDER',
+                    reason: PayoutOrderLogReason.REORDER,
                 },
             });
         });
@@ -387,7 +387,7 @@ describe('PayoutService', () => {
                 data: { payoutOrder: ['u1', 'u3', 'u2'] },
             });
             expect(prisma.payoutOrderLog.create).toHaveBeenCalledWith({
-                data: expect.objectContaining({ reason: 'SKIP_DEFAULT', changedBy: 'u1' }),
+                data: expect.objectContaining({ reason: PayoutOrderLogReason.SKIP_DEFAULT, changedBy: 'u1' }),
             });
         });
 

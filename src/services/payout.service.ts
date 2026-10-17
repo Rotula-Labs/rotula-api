@@ -1,4 +1,4 @@
-import { PrismaClient, Prisma } from '@prisma/client';
+import { PrismaClient, Prisma, PayoutOrderLogReason, PayoutStatus, ContributionStatus } from '@prisma/client';
 import { WhatsAppService } from './whatsapp.service';
 import { SorobanService } from './soroban.service';
 import { config } from '../config/env';
@@ -100,7 +100,7 @@ export class PayoutService {
                     changedBy: requesterUserId,
                     previousOrder,
                     newOrder: order,
-                    reason: 'REORDER',
+                    reason: PayoutOrderLogReason.REORDER,
                 },
             }),
         ]);
@@ -230,7 +230,7 @@ export class PayoutService {
                     changedBy: requesterUserId,
                     previousOrder: currentOrder,
                     newOrder,
-                    reason: 'SKIP_DEFAULT',
+                    reason: PayoutOrderLogReason.SKIP_DEFAULT,
                 },
             }),
         ]);
@@ -345,7 +345,7 @@ export class PayoutService {
                 amount,
                 transactionHash: hash,
                 cycleNumber,
-                status: 'COMPLETED',
+                status: PayoutStatus.COMPLETED,
             },
         });
 
