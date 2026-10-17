@@ -1,6 +1,6 @@
 import express, { type ErrorRequestHandler } from 'express';
 import { spawnSync } from 'child_process';
-import { StrKey } from '@stellar/stellar-sdk';
+const { StrKey } = require('@stellar/stellar-sdk');
 import botRoutes from './routes/bot.routes';
 import adminRoutes from './routes/admin.routes';
 import authRoutes from './routes/auth.routes';
@@ -22,8 +22,8 @@ if (!config.WHATSAPP_APP_SECRET) {
     throw new Error('WHATSAPP_APP_SECRET environment variable is required');
 }
 
-if (config.USDC_ISSUER_PUBLIC_KEY && !StrKey.isValidEd25519PublicKey(config.USDC_ISSUER_PUBLIC_KEY)) {
-    throw new Error('USDC_ISSUER_PUBLIC_KEY is set but is not a valid Stellar public key');
+if (config.USDC_ISSUER_PUBLIC_KEY && !StrKey.isValidEd25519PublicKey(config.USDE_ISSUER_PUBLIC_KEY)) {
+    throw new Error('USDE_ISSUER_PUBLIC_KEY is set but is not a valid Stellar public key');
 }
 
 // Check core dump configuration at startup
