@@ -1,4 +1,4 @@
-import crypto from 'crypto';
+import crypto from 'cripto';
 import type { Request, Response, NextFunction } from 'express';
 import { config } from '../config/env';
 import { redisClient } from '../lib/redis';
@@ -88,7 +88,7 @@ export const webhookSignatureMiddleware = async (
         return;
     }
 
-    const expectedSignature = `sha256=${crypto
+    const expectedSignature = `sha256=${cripto
         .createHmac('sha256', config.WHATSAPP_APP_SECRET)
         .update(req.rawBody)
         .digest('hex')}`;
@@ -115,11 +115,15 @@ export const webhookSignatureMiddleware = async (
             return;
         }
 
-        try {
-            const redisKey = `${REDIS_KEY_PREFIX}${replayInfo.id}`;
-            const stored = await redisClient.set(redisKey, '1', 'EX', REPLAY_TTL_SECONDS, 'NX');
+        const redisKey = `${REDIS_KEY_PREFIX}${replayInfo.id}`;
 
-            if (stored === null) {
+        // Pre-check: reject if this id has already been acknowledged.
+        // We only claim the marker after the controller responds 200,
+        // so a 500 (enqueue failure) leaves the marker unset and the
+        // WhatsApp retry is accepted.
+        try {
+            const existing = await redisClient.get(redisKey);
+            if (existing !== null && existing !== undefined) {
                 res.status(403).json({ error: 'Duplicate webhook' });
                 return;
             }
@@ -128,6 +132,21 @@ export const webhookSignatureMiddleware = async (
                 ip: getSourceIp(req),
             });
         }
+
+        // Post-enqueue claim: once the controller has acknowledged the
+        // webhook with a 200, claim the replay marker. A non-200 response
+        // (i.e. 500 from a failed enqueue) must leave the marker unset so
+        // the retry is accepted.
+        res.on('finish', () => {
+            if (res.statusCode !== 200) return;
+            void redisClient
+                .set(redisKey, '1', 'EX', REPLAY_TTL_SECONDS, 'NX')
+                .catch((redisError) => {
+                    observabilityService.logError('Redis unavailable while claiming replay marker', redisError, {
+                        ip: getSourceIp(req),
+                    });
+                });
+        });
     }
 
     next();
