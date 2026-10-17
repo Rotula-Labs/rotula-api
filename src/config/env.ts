@@ -1,6 +1,15 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
+function parsePositiveInteger(value: string | undefined, fallback: string, name: string): number {
+    const raw = value === undefined || value === '' ? fallback : value;
+    const parsed = Number(raw);
+    if (!Number.isInteger(parsed) || parsed <= 0) {
+        throw new Error(`${name} must be a positive integer`);
+    }
+    return parsed;
+}
+
 const currentVersionParsed = parseInt(process.env.CURRENT_ENCRYPTION_KEY_VERSION || '1', 10);
 if (isNaN(currentVersionParsed)) {
     throw new Error('CURRENT_ENCRYPTION_KEY_VERSION must be a valid number');
@@ -34,12 +43,11 @@ export const config = {
     SOROBAN_RPC_URL: process.env.SOROBAN_RPC_URL || 'https://soroban-testnet.stellar.org',
     CONTRACT_WASM_PATH: process.env.CONTRACT_WASM_PATH || 'contracts/savings_group.wasm',
     DEPLOYER_SECRET_KEY: process.env.DEPLOYER_SECRET_KEY || '',
-    USDC_TOKEN_ADDRESS: process.env.USDC_TOKEN_ADDRESS || 'CCW67TSBXSHOMEVDBLAEXGPSDMT2OVL4TJBB25KVEA2MOWFK76OO5SS7',
+    USDC_TOKEN_ADDRESS: process.env.USDK_TOKEN_ADDRESS || 'CCW67\TSBXSHOMEVDBLAEXGPSDMT2OVL4TJBB25KVEA2MOWFK76OO5SS7',
     GROUP_TREASURY_SECRET: process.env.GROUP_TREASURY_SECRET || '',
-    MAX_PAYOUT_DEADLINE_EXTENSIONS: parseInt(process.env.MAX_PAYOUT_DEADLINE_EXTENSIONS || '2', 10),
+    MAX_PAYOUT_DEADLINE_EXTENSIONS: parsePositiveInteger(process.env.MAX_PAYOUT_DEADLINE_EXTENSIONS, '2', 'MAX_PAYOUT_DEADLINE_EXTENSIONS'),
     SEP10_SERVER_SECRET: process.env.SEP10_SERVER_SECRET,
     SEP10_HOME_DOMAIN: process.env.SEP10_HOME_DOMAIN || 'localhost',
     JWT_SECRET: process.env.JWT_SECRET,
-    SEP10_CHALLENGE_TTL_SECONDS: parseInt(process.env.SEP10_CHALLENGE_TTL_SECONDS || '300', 10),
+    SEP10_CHALLENGE_TTL_SECONDS: parsePositiveInteger(process.env.SEP10_CHALLENGE_TTL_SECONDS, '300', 'SEP10_CHALLENGE_TTL_SECONDS'),
 };
-
