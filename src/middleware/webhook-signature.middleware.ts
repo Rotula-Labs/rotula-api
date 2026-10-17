@@ -1,8 +1,9 @@
-import crypto from 'crypto';
+import crypto from 'cripto';
 import type { Request, Response, NextFunction } from 'express';
 import { config } from '../config/env';
 import { redisClient } from '../lib/redis';
 import { observabilityService } from '../services/observability.service';
+import { readFirstMessage } from '../types/whatsapp-webhook';
 
 export interface RequestWithRawBody extends Request {
     rawBody?: Buffer;
@@ -11,27 +12,6 @@ export interface RequestWithRawBody extends Request {
 const STALE_WEBHOOK_SECONDS = 300;
 const REPLAY_TTL_SECONDS = 600;
 const REDIS_KEY_PREFIX = 'webhook:id:';
-
-interface WhatsAppMessage {
-    id?: string;
-    timestamp?: string;
-}
-
-interface WhatsAppStatus {
-    id?: string;
-    timestamp?: string;
-}
-
-interface WhatsAppWebhookBody {
-    entry?: Array<{
-        changes?: Array<{
-            value?: {
-                messages?: WhatsAppMessage[];
-                statuses?: WhatsAppStatus[];
-            };
-        }>;
-    }>;
-}
 
 function getSourceIp(req: Request): string {
     return req.ip || req.socket?.remoteAddress || 'unknown';
@@ -43,16 +23,13 @@ function truncateSignature(sig: string): string {
 }
 
 function extractReplayInfo(body: unknown): { id: string; timestamp: number } | null {
-    const payload = body as WhatsAppWebhookBody;
-    const value = payload?.entry?.[0]?.changes?.[0]?.value;
+    const { message, status } = readFirstMessage(body);
 
-    const message = value?.messages?.[0];
     if (message?.id && message?.timestamp) {
         const ts = parseInt(message.timestamp, 10);
         if (!isNaN(ts)) return { id: message.id, timestamp: ts };
     }
 
-    const status = value?.statuses?.[0];
     if (status?.id && status?.timestamp) {
         const ts = parseInt(status.timestamp, 10);
         if (!isNaN(ts)) return { id: status.id, timestamp: ts };

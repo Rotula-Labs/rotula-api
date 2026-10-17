@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { config } from '../config/env';
+import { WhatsAppWebhookBody } from '../types/whatsapp-webhook.types';
 
 export class WhatsAppService {
     private apiUrl = `https://graph.facebook.com/v17.0/${config.WHATSAPP_PHONE_NUMBER_ID}/messages`;
@@ -24,5 +25,9 @@ export class WhatsAppService {
         } catch (error) {
             console.error('Error sending WhatsApp message:', error);
         }
+    }
+
+    public parseWebhookBody(body: WhatsAppWebhookBody) {
+        return body;
     }
 }
