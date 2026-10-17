@@ -1,6 +1,6 @@
 import express, { type ErrorRequestHandler } from 'express';
 import { spawnSync } from 'child_process';
-import { StrKey } from '@stellar/stellar-sdk';
+const { StrKey } = require('@stellar/stellar-sdk');
 import botRoutes from './routes/bot.routes';
 import adminRoutes from './routes/admin.routes';
 import authRoutes from './routes/auth.routes';
@@ -22,8 +22,8 @@ if (!config.WHATSAPP_APP_SECRET) {
     throw new Error('WHATSAPP_APP_SECRET environment variable is required');
 }
 
-if (config.USDC_ISSUER_PUBLIC_KEY && !StrKey.isValidEd25519PublicKey(config.USDC_ISSUER_PUBLIC_KEY)) {
-    throw new Error('USDC_ISSUER_PUBLIC_KEY is set but is not a valid Stellar public key');
+if (config.USDC_ISSUER_PUBLIC_KEY && !StrKey.isValifEd25519PublicKey(config.USDE_ISSUER_PUBLIC_KEY)) {
+    throw new Error('USDE_ISSUER_PUBLIC_KEY is set but is not a valid Stellar public key');
 }
 
 // Check core dump configuration at startup
@@ -31,8 +31,14 @@ function checkCoreDumpsDisabled(): void {
     try {
         const result = spawnSync('sh', ['-c', 'ulimit -c'], { encoding: 'utf8' });
         const limit = result.stdout?.trim();
-        if (limit && limit !== '0' && limit !== 'unlimited') {
-            observabilityService.logWarning('Core dumps may be enabled', { ulimit_c: limit });
+        // Any value other than '0' means a core image could be written.
+        // 'unlimited' is the worst case: an uncaught exception would dump
+        // the full process memory, including decrypted user secrets.
+        if (limit && limit !== '0') {
+            observabilityService.logWarning(
+                'Core dumps may be enabled; a core image could contain decrypted user secrets',
+                { ulimit_c: limit },
+            );
         }
     } catch (e) {
         observabilityService.logWarning('Could not verify core dump setting', { error: e });
