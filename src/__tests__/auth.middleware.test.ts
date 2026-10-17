@@ -1,5 +1,6 @@
 import { Response } from 'express';
 import jwt from 'jsonwebtoken';
+import { createHmac } from 'crypto';
 import { config } from '../config/env';
 import { requireAuth } from '../middleware/auth.middleware';
 import type { AuthRequest } from '../middleware/auth.middleware';
@@ -58,6 +59,22 @@ describe('requireAuth middleware', () => {
         expect(next).not.toHaveBeenCalled();
     });
 
+    it('responds 401 without calling next when the token uses a non-HS256 algorithm', () => {
+        const header = Buffer.from(JSON.stringify({ alg: 'HS512', typ: 'JWT' })).toString('base64url');
+        const payload = Buffer.from(JSON.stringify({ sub: ACCOUNT })).toString('base64url');
+        const signature = createHmac('sha512', JWT_SECRET)
+            .update(`${header}.${payload}`)
+            .digest('base64url');
+        const token = `${header}.${payload}.${signature}`;
+        const res = makeResponse();
+
+        requireAuth(makeRequest(`Bearer ${token}`), res, next);
+
+        expect(res.status).toHaveBeenCalledWith(401);
+        expect(res.json).toHaveBeenCalledWith({ error: 'Invalid or expired token' });
+        expect(next).not.toHaveBeenCalled();
+    });
+
     it('responds 401 without calling next when the token has expired', () => {
         const token = jwt.sign({ sub: ACCOUNT }, JWT_SECRET, { expiresIn: -10 });
         const res = makeResponse();
@@ -70,7 +87,7 @@ describe('requireAuth middleware', () => {
     });
 
     it('sets req.account from the token sub and calls next exactly once for a valid token', () => {
-        const token = jwt.sign({ sub: ACCOUNT }, JWT_SECRET);
+        const token = jwt.sign({ sub: ACCOUNT }, JWT_SECRET, { algorithm: 'HS256' });
         const req = makeRequest(`Bearer ${token}`);
         const res = makeResponse();
 
