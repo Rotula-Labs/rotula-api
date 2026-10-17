@@ -140,6 +140,35 @@ describe('locale.service', () => {
         });
     });
 
+    describe('loadLocale — lazy loading', () => {
+        it('should translate correctly after on-demand loading of French', async () => {
+            const { initI18n, t, loadLocale } = await import('../services/locale.service');
+            await initI18n();
+            await loadLocale('fr');
+            const result = t('balance.success', 'fr', { balances: 'XLM: 99' });
+            expect(result).toContain('Soldes');
+            expect(result).toContain('XLM: 99');
+            // must not leak dotted keys
+            expect(result).not.toContain('balance.success');
+        });
+
+        it('should translate correctly after on-demand loading of Yoruba', async () => {
+            const { initI18n, t, loadLocale } = await import('../services/locale.service');
+            await initI18n();
+            await loadLocale('yo');
+            const result = t('help.text', 'yo');
+            expect(result).toContain('Kolo');
+            expect(result).not.toContain('help.text');
+        });
+
+        it('should be idempotent — loading the same language twice does not throw', async () => {
+            const { initI18n, loadLocale } = await import('../services/locale.service');
+            await initI18n();
+            await loadLocale('fr');
+            await expect(loadLocale('fr')).resolves.toBeUndefined();
+        });
+    });
+
     describe('isSupportedLanguage', () => {
         it('should return true for en', async () => {
             const { initI18n, isSupportedLanguage } = await import('../services/locale.service');
