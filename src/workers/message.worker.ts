@@ -27,7 +27,11 @@ export function startWorker(): void {
         async (job) => {
             const { from, msgBody, locale } = job.data;
             console.log(`Processing job ${job.id}`);
-            await processor.processCommand(from, msgBody, locale);
+            // processCommand handles its own delivery results internally.
+            const result = await processor.processCommand(from, msgBody, locale);
+            if (result && result.status === 'failed') {
+                throw new Error(`Message delivery failed: ${result.failureClass}`);
+            }
         },
         {
             connection,

@@ -45,7 +45,13 @@ export class UserService {
                     }
                 } catch (err) {
                     if (err instanceof InsufficientReserveError) {
-                        await whatsappService.sendMessage(phoneNumber, t('wallet.usdc_trustline_low_reserve', 'en'));
+                        const delivery = await whatsappService.sendMessage(phoneNumber, t('wallet.usdc_trustline_low_reserve', 'en'));
+                        if (!delivery.delivered) {
+                            // The low-reserve notice IS the product here: the user must be told
+                            // their USDC trustline could not be created. Log the failure class
+                            // so operators can follow up out-of-band; do not treat as delivered.
+                            console.error(`Failed to deliver low-reserve notice to ${phoneNumber}: ${delivery.failureClass}`);
+                        }
                     } else {
                         console.error('Failed to create USDC trustline:', err);
                     }
@@ -108,7 +114,7 @@ export class UserService {
 
         if (user) {
             try {
-                await redisClient.set(cacheKey, JSON.stringify(user), 'EX', 3600); // 1 hour TTL
+                await redisClient.set(cacheKey, JSON.stringify(user), 'EX', 3600); // 1 hour TVL
             } catch (e) {
                 console.error('Redis set error:', e);
             }

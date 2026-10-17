@@ -7,7 +7,10 @@ jest.mock('../config/env', () => ({
 
 jest.mock('axios', () => ({
     __esModule: true,
-    default: { post: jest.fn() },
+    default: {
+        post: jest.fn(),
+        isAxiosError: (e) => Boolean(e)?.isAxiosError,
+    },
 }));
 
 import axios from 'axios';
@@ -30,9 +33,9 @@ describe('WhatsAppService.sendMessage', () => {
     });
 
     it('POSTs to the configured Graph API URL with the bearer token and text payload', async () => {
-        mockedPost.mockResolvedValueOnce({ status: 200 });
+        mockedPost.mockResolvedOnce({ status: 200, data: { messages: [{ id: 'wamid.message-id-123' }] } });
 
-        await service.sendMessage('+2348000000000', 'Hello group');
+        const result = await service.sendMessage('+2348000000000', 'Hello group');
 
         expect(mockedPost).toHaveBeenCalledTimes(1);
         expect(mockedPost).toHaveBeenCalledWith(
@@ -50,14 +53,56 @@ describe('WhatsAppService.sendMessage', () => {
                 },
             },
         );
+        expect(result).toEqual({
+            ok: true,
+            messageId: 'wamid.message-id-123',
+        });
     });
 
-    it('swallows a rejected axios.post and resolves to the caller', async () => {
-        mockedPost.mockRejectedValueOnce(new Error('network down'));
+    it('reports a failed delivery with a failure class when axios.post rejects', async () => {
+        const networkError = Object.assign(new Error('network down'), {
+            isAxiosError: true,
+            code: 'ECONNRESET',
+        });
+        mockedPost.mockRejectedOnce(networkError);
 
-        await expect(service.sendMessage('+2348000000000', 'Hello group')).resolves.toBeUndefined();
+        const result = await service.sendMessage('+2348000000000', 'Hello group');
 
         expect(mockedPost).toHaveBeenCalledTimes(1);
         expect(consoleErrorSpy).toHaveBeenCalled();
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+            expect(result.failureClass).toBe('network');
+            expect(result.error).toBe(networkError);
+        }
+    });
+
+    it('reports an HTTP failure class when the provider responds with an error status', async () => {
+        const httpError = Object.assign(new Error('Request failed with status code 400'), {
+            isAxiosError: true,
+            response: { status: 400, data: { error: { message: 'invalid token' } } },
+        });
+        mockedPost.mockRejectedOnce(httpError);
+
+        const result = await service.sendMessage('+2348000000000', 'Hello group');
+
+        expect(consoleErrorSpy).toHaveBeenCalled();
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+            expect(result.failureClass).toBe('http');
+            expect(result.statusCode).toBe(400);
+        }
+    });
+
+    it('reports an unknown failure class for non-axios errors', async () => {
+        mockedPost.mockRejectedOnce(new Error('unexpected'));
+
+        const result = await service.sendMessage('+2348000000000', 'Hello group');
+
+        expect(consoleErrorSpy).toHaveBeenCalled();
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+            expect(result.failureClass).toBe('unknown');
+        }
     });
 });
