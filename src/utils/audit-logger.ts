@@ -1,6 +1,7 @@
 import { prisma } from '../lib/prisma';
+import type { SecretAccessOperation } from '@prisma/client';
 
-export type SecretOperation = 'SEND' | 'CONTRIBUTE' | 'TRUSTLINE' | 'KEY_ROTATION';
+export type SecretOperation = SecretAccessOperation;
 
 export async function logSecretAccess(
     userId: string,

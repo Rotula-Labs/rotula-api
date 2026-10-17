@@ -1,6 +1,7 @@
 import * as StellarSdk from '@stellar/stellar-sdk';
 import { prisma } from '../lib/prisma';
 import { PayoutService } from './payout.service';
+import { MemberExitType } from '@prisma/client';
 import { SorobanService } from './soroban.service';
 import { WhatsAppService } from './whatsapp.service';
 import { removeGroupCycle } from '../queue/contribution-scheduler.queue';
@@ -166,7 +167,7 @@ export class GroupExitService {
                 groupId: group.id,
                 userId: member.userId,
                 initiatedBy,
-                type,
+                type: type as MemberExitType,
                 totalContributed: String(totalContributed),
                 totalReceived: String(totalReceived),
                 netOwed: String(netOwed),

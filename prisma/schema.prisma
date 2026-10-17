@@ -35,6 +35,33 @@ enum DeploymentStatus {
   FAILED
 }
 
+enum ContributionStatus {
+  PENDING
+  COMPLETED
+  FAILED
+}
+
+enum PayoutStatus {
+  COMPLETED
+}
+
+enum PayoutOrderReason {
+  REORDER
+  SKIP_DEFAULT
+}
+
+enum SecretAccessOperation {
+  SEND
+  CONTRIBUTE
+  TRUSTLINE
+  KEY_ROTATION
+}
+
+enum MemberExitType {
+  LEAVE
+  KICK
+}
+
 model SavingsGroup {
   id                     String           @id @default(uuid())
   name                   String
@@ -89,7 +116,7 @@ model Contribution {
   groupId         String
   amount          Decimal
   transactionHash String?
-  status          String   @default("PENDING") // PENDING, COMPLETED, FAILED
+  status          ContributionStatus @default(PENDING)
   createdAt       DateTime @default(now())
 
   @@index([userId])
@@ -104,7 +131,7 @@ model Payout {
   amount          Decimal
   transactionHash String
   cycleNumber     Int
-  status          String       @default("COMPLETED")
+  status          PayoutStatus @default(COMPLETED)
   createdAt       DateTime     @default(now())
 
   @@index([groupId])
@@ -118,7 +145,7 @@ model PayoutOrderLog {
   changedBy     String
   previousOrder Json?
   newOrder      Json
-  reason        String       @default("REORDER") // e.g., "REORDER", "SKIP_DEFAULT"
+  reason        PayoutOrderReason @default(REORDER)
   createdAt     DateTime     @default(now())
 
   @@index([groupId])
@@ -146,7 +173,7 @@ model PaymentRequest {
 model SecretAccessLog {
   id           String   @id @default(uuid())
   userId       String
-  operation    String // "SEND" | "CONTRIBUTE" | "TRUSTLINE" | "KEY_ROTATION"
+  operation    SecretAccessOperation
   success      Boolean
   errorMessage String?
   createdAt    DateTime @default(now())
@@ -187,7 +214,7 @@ model MemberExitLog {
   /// userId of who triggered the exit — the member themselves for LEAVE, the
   /// creator for KICK.
   initiatedBy      String
-  type             String // "LEAVE" | "KICK"
+  type             MemberExitType
   totalContributed Decimal
   totalReceived    Decimal
   /// totalContributed - totalReceived. Positive is refunded to the member;
