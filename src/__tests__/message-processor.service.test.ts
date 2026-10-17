@@ -1,5 +1,6 @@
 import { MessageProcessor } from '../services/message-processor.service';
 import { GroupExitError } from '../services/group-exit.service';
+import { PaymentRequestError } from '../services/payment-request.service';
 
 // Mock locale.service so tests never depend on i18next initialisation.
 // t() returns "<key>|<serialised-params>" making assertions precise and language-agnostic.
@@ -144,6 +145,18 @@ describe('MessageProcessor', () => {
         );
     });
 
+    describe('user lookup (perf: fetch the user once per command)', () => {
+        it('issues exactly one user lookup for a representative command', async () => {
+            await processor.processCommand('12345', 'BALANCE');
+            expect(mockGetOrCreateUser).toHaveBeenCalledTimes(1);
+        });
+
+        it('issues exactly one user lookup for a command that resolves a recipient', async () => {
+            await processor.processCommand('12345', 'SEND 10 @jane');
+            expect(mockGetOrCreateUser).toHaveBeenCalledTimes(1);
+        });
+    });
+
     describe('processCommand routing', () => {
         it('should handle BALANCE command', async () => {
             await processor.processCommand('12345', 'BALANCE');
@@ -235,7 +248,7 @@ describe('MessageProcessor', () => {
         it('should decrypt sender secret and send payment on success', async () => {
             await processor.processCommand('12345', 'SEND 10 @jane');
 
-            expect(mockGetOrCreateUser).toHaveBeenCalledWith('12345');
+            expect(mockGetOrCreateUser).toHaveBeenCalledWith('12345', expect.anything());
             expect(mockResolveUser).toHaveBeenCalledWith('@jane');
             // keyVersion param may be undefined depending on user record
             expect(mockDecrypt).toHaveBeenCalledWith('ENC_SEC', 'IV', 'TAG', undefined);
@@ -259,7 +272,7 @@ describe('MessageProcessor', () => {
                 stellarWallet: JSON.stringify({ publicKey: 'G_PUB', encryptedSecret: 'ENC_SEC', iv: 'IV', authTag: 'TAG' }),
                 createdAt: new Date(), language: 'en'
             };
-            mockGetOrCreateUser.mockResolvedValueOnce(walletUser).mockResolvedValueOnce(walletUser);
+            mockGetOrCreateUser.mockResolvedValueOnce(walletUser);
             await processor.processCommand('12345', 'SEND 10 @jane');
             expect(mockSendMessage).toHaveBeenCalledWith('12345', expect.stringContaining('send.initiating'));
         });
@@ -731,7 +744,7 @@ describe('MessageProcessor', () => {
 
     describe('error handling', () => {
         it('should catch and report errors from handlers', async () => {
-            mockGetOrCreateUser.mockRejectedValueOnce(new Error('DB connection failed')).mockRejectedValueOnce(new Error('DB connection failed'));
+            mockGetOrCreateUser.mockRejectedValueOnce(new Error('DB connection failed'));
             await processor.processCommand('12345', 'BALANCE');
             expect(mockSendMessage).toHaveBeenCalledWith('12345', expect.stringContaining('error.generic'));
         });
@@ -740,7 +753,7 @@ describe('MessageProcessor', () => {
     describe('handleBalance edge cases', () => {
         it('should handle missing wallet', async () => {
             const noWalletUser = { id: 'u2', language: 'en' };
-            mockGetOrCreateUser.mockResolvedValueOnce(noWalletUser).mockResolvedValueOnce(noWalletUser);
+            mockGetOrCreateUser.mockResolvedValueOnce(noWalletUser);
             await processor.processCommand('12345', 'BALANCE');
             expect(mockSendMessage).toHaveBeenCalledWith('12345', expect.stringContaining('balance.no_wallet'));
         });
@@ -760,7 +773,6 @@ describe('MessageProcessor', () => {
         });
 
         it('REQUEST rejects when the sender already has 5 pending requests', async () => {
-            const { PaymentRequestError } = require('../services/payment-request.service');
             mockCreatePaymentRequest.mockRejectedValue(new PaymentRequestError('too_many_pending'));
 
             await processor.processCommand('12345', 'REQUEST 50 @jane');
@@ -783,7 +795,6 @@ describe('MessageProcessor', () => {
         });
 
         it('ACCEPT refuses a request addressed to someone else', async () => {
-            const { PaymentRequestError } = require('../services/payment-request.service');
             mockAcceptPaymentRequest.mockRejectedValue(new PaymentRequestError('not_responder'));
 
             await processor.processCommand('67890', 'ACCEPT REQ-1');
