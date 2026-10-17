@@ -14,6 +14,8 @@ const defaultJobOptions = {
     removeOnFail: false,
 };
 
+const reconciliationJobId = 'cycle-reconciliation';
+
 let queueInstance: Queue | null = null;
 
 function getQueue(): Queue {
@@ -110,6 +112,33 @@ export async function enqueueCycleEnd(groupId: string, delayMs: number): Promise
             jobId: `end:${groupId}:${Date.now()}`
         }
     );
+}
+
+/**
+ * Ensures a recurring reconciliation job exists that picks up any group left
+ * with a pending deployment or a missing cycle schedule. This is the safety
+ * net for groups created when Redis was unavailable or whose scheduling failed.
+ */
+export async function ensureReconciliationJob(): Promise<string | null> {
+    if (redisClient.status !== 'ready') {
+        console.warn('Redis is down, unable to register cycle reconciliation job.');
+        return null;
+    }
+
+    const queue = getQueue();
+    await queue.add(
+        'cycle-reconciliation',
+        {},
+        {
+            jobId: reconciliationJobId,
+            repeat: {
+                pattern: '*/5 * * * *', // every 5 minutes
+            },
+            removeOnComplete: false,
+        }
+    );
+
+    return reconciliationJobId;
 }
 
 export async function closeQueue(): Promise<void> {

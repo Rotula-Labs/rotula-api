@@ -1,10 +1,14 @@
 import { GroupService } from '../services/group.service';
 import { PrismaClient } from '@prisma/client';
+import { scheduleGroupCycle } from '../queue/contribution-scheduler.queue';
+import { enqueueContractDeployment } from '../queue/soroban-deployment.queue';
 
 jest.mock('@prisma/client', () => {
     const mPrismaClient = {
         savingsGroup: {
             create: jest.fn(),
+            update: jest.fn(),
+            delete: jest.fn(),
         },
         groupMember: {
             create: jest.fn(),
@@ -100,6 +104,37 @@ describe('GroupService', () => {
                 'Amount cannot have more than 7 decimal places.',
             );
             expect(prismaClientMock.savingsGroup.create).not.toHaveBeenCalled();
+        });
+
+        it('should roll back the group when scheduling the cycle fails', async () => {
+            const mockGroup = { id: 'g1', name: 'Test Group' };
+            prismaClientMock.savingsGroup.create.mockResolvedValueOnce(mockGroup);
+            prismaClientMock.savingsGroup.delete.mockResolvedValueOnce(mockGroup);
+            (scheduleGroupCycle as jest.Mock).mockRejectedValueOnce(new Error('scheduler down'));
+
+            await expect(
+                groupService.createGroup('u1', 'Test Group', '100', 'WEEKLY'),
+            ).rejects.toThrow('scheduler down');
+
+            expect(prismaClientMock.savingsGroup.delete).toHaveBeenCalledWith({
+                where: { id: 'g1' },
+            });
+            expect(enqueueContractDeployment).not.toHaveBeenCalled();
+        });
+
+        it('should roll back the group when enqueuing the deployment fails', async () => {
+            const mockGroup = { id: 'g1', name: 'Test Group' };
+            prismaClientMock.savingsGroup.create.mockResolvedValueOnce(mockGroup);
+            prismaClientMock.savingsGroup.delete.mockResolvedValueOnce(mockGroup);
+            (enqueueContractDeployment as jest.Mock).mockRejectedValueOnce(new Error('queue down'));
+
+            await expect(
+                groupService.createGroup('u1', 'Test Group', '100', 'WEEKLY'),
+            ).rejects.toThrow('queue down');
+
+            expect(prismaClientMock.savingsGroup.delete).toHaveBeenCalledWith({
+                where: { id: 'g1' },
+            });
         });
 
         it('should reject a contribution amount exceeding 1,000,000 XLM', async () => {

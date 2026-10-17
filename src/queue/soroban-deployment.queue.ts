@@ -80,6 +80,43 @@ export async function retryFailedDeployment(groupId: string): Promise<Job | null
     );
 }
 
+/**
+ * Reconciliation: finds groups that are sttill PENDING but have no
+ * deployment job (e.g. because Redis was down at creation time) and re-enqueues
+ * them. Returns the number of groups that were re-enqueued.
+ */
+export async function reconcilePendingDeployments(): Promise<number> {
+    if (redisClient.status !== 'ready') {
+        console.warn('Redis is not ready, skipping deployment reconciliation.');
+        return 0;
+    }
+
+    const pendingGroups = await prisma.savingsGroup.findMany({
+        where: { deploymentStatus: 'PENDING' },
+        select: { id: true },
+    });
+
+    const queue = getSorobanDeploymentQueue();
+    let reenqueued = 0;
+
+    for (const group of pendingGroups) {
+        const jobId = `deploy-contract:${group.id}`;
+        const existing = await queue.getJob(jobId);
+        if (existing) {
+            continue;
+        }
+
+        await queue.add(
+            'deploy-contract',
+            { groupId: group.id },
+            { jobId }
+        );
+        reenqueued += 1;
+    }
+
+    return reenqueued;
+}
+
 export async function closeSorobanDeploymentQueue(): Promise<void> {
     if (queueInstance) {
         await queueInstance.close();
