@@ -1,10 +1,14 @@
 import { GroupService } from '../services/group.service';
 import { PrismaClient } from '@prisma/client';
+import { removeGroupCode, scheduleGroupCycle } from '../queue/contribution-scheduler.queue';
 
 jest.mock('@prisma/client', () => {
     const mPrismaClient = {
         savingsGroup: {
             create: jest.fn(),
+            findUnique: jest.fn(),
+            delete: jest.fn(),
+            update: jest.fn(),
         },
         groupMember: {
             create: jest.fn(),
@@ -281,6 +285,69 @@ describe('GroupService', () => {
                 where: { groupId: 'g-new' }
             });
             expect(result).toEqual([]);
+        });
+    });
+
+    describe('deleteGroup', () => {
+        it('should remove the repeatable job before deleting the group row', async () => {
+            prismaClientMock.savingsGroup.findUnique.mockResolvedValueOnce({
+                id: 'g1',
+                contributionFrequency: 'WEEKLY',
+                bullMqJobId: 'job-old-1',
+            });
+            prismaClientMock.savingsGroup.delete.mockResolvedValueOnce({ id: 'g1' });
+
+            const callLog: string[] = [];
+            (removeGroupCycle as jest.Mock).mockImplementationOnce(async () => {
+                callLog.push('removeGroupCycle');
+            });
+            prismaClientMock.savingsGroup.delete.mockImplementationOnce(async () => {
+                callLog.push('delete');
+                return { id: 'g1' };
+            });
+
+            await groupService.deleteGroup('g1');
+
+            expect(removeGroupCycle).toHaveBeenCalledWith('job-old-1', 'WEEKLY');
+            expect(prismaClientMock.savingsGroup.delete).toHaveBeenCalledWith({ where: { id: 'g1' } });
+            expect(callLog).toEqual(['removeGroupCycle', 'delete']);
+        });
+
+        it('should be a no-op that deletes nothing when the group does not exist', async () => {
+            prismaClientMock.savingsGroup.findUnique.mockResolvedValueOnce(null);
+
+            await groupService.deleteGroup('g-missing');
+
+            expect(removeGroupCycle).not.toHaveBeenCalled();
+            expect(prismaClientMock.savingsGroup.delete).not.toHaveBeenCalled();
+        });
+    });
+
+    describe('updateGroupFrequency', () => {
+        it('should remove the old schedule, add the new one and persist the new job id', async () => {
+            prismaClientMock.savingsGroup.findUnique.mockResolvedValueOnce({
+                id: 'g1',
+                contributionFrequency: 'WEEKLY',
+                bullMqJobId: 'job-old-1',
+            });
+            (scheduleGroupCycle as jest.Mock).mockResolvedValueOnce('job-new-2');
+            prismaClientMock.savingsGroup.update.mockResolvedValueOnce({
+                id: 'g1',
+                contributionFrequency: 'MONTHLY',
+                bullMqJobId: 'job-new-2',
+            });
+
+            await groupService.updateGroupFrequency('g1', 'MONTHLY');
+
+            expect(removeGroupCycle).toHaveBeenCalledWith('job-old-1', 'WEEKLY');
+            expect(scheduleGroupCycle).toHaveBeenCalledWith('g1', 'MONTHLY');
+            expect(prismaClientMock.savingsGroup.update).toHaveBeenCalledWith({
+                where: { id: 'g1' },
+                data: {
+                    contributionFrequency: 'MONTHLY',
+                    bullMqJobId: 'job-new-2',
+                },
+            });
         });
     });
 });
