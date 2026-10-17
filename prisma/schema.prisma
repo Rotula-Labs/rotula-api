@@ -90,10 +90,16 @@ model Contribution {
   amount          Decimal
   transactionHash String?
   status          String   @default("PENDING") // PENDING, COMPLETED, FAILED
+  // Explicit cycle identifier assigned when the contribution is recorded.
+  // Nullable so historical rows written before this column existed remain
+  // readable; cycle-scoped queries fall back to a timestamp window only when
+  // this is null.
+  cycleNumber     Int?
   createdAt       DateTime @default(now())
 
   @@index([userId])
   @@index([groupId])
+  @@index([groupId, userId, cycleNumber])
 }
 
 model Payout {
@@ -165,7 +171,7 @@ model ReconciliationMismatch {
   userId        String
   /// Amount returned by the Soroban contract's get_contribution() (in stroops)
   onChainAmount Decimal
-  /// Sum of COMPLETED Contribution records for this user+group in the current cycle
+  /// Sum of COMPLETED Contribution records for this user+group matching the current cycleNumber
   dbAmount      Decimal
   detectedAt    DateTime  @default(now())
   resolvedAt    DateTime?

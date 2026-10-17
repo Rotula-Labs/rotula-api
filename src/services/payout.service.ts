@@ -139,12 +139,19 @@ export class PayoutService {
         const order = this.resolveOrder(group);
         const cycleNumber = (group as any).totalCycles + 1;
 
-        const cycleWhere: any = { groupId, status: 'COMPLETED' };
+        // Select by the explicit cycle identifier. Fall back to the timestamp
+        // window only for historical rows that predate the cycleId column.
+        const cycleWhere: any = {
+            groupId,
+            status: 'COMPLETED',
+            OR: [{ cycleNumber }],
+        };
         if (group.currentCycleStart) {
-            cycleWhere.createdAt = { gte: group.currentCycleStart };
+            const window: any = { createdAt: { gte: group.currentCycleStart } };
             if (group.currentCycleEnd) {
-                cycleWhere.createdAt.lt = group.currentCycleEnd;
+                window.createdAt.lt = group.currentCycleEnd;
             }
+            cycleWhere.OR.push({ cycleNumber: null, ...window });
         }
 
         const contributions = await prisma.contribution.findMany({ where: cycleWhere });
