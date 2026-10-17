@@ -12,7 +12,7 @@ const RETRY_DELAY_MS = 200;
 
 /** Error thrown when a payment request cannot be accepted in its current state. */
 export class PaymentRequestError extends Error {
-    constructor(public code: 'not_found' | 'not_pending' | 'expired' | 'not_responder' | 'insufficient_balance' | 'too_many_pending') {
+    constructor(public code: 'not_found' | 'not_pending' | 'expired' | 'not_responder' | 'insufficient_balance' | 'too_many_pending' | 'unknown_user' | 'no_wallet') {
         super(`Payment request error: ${code}`);
         this.name = 'PaymentRequestError';
     }
@@ -34,6 +34,19 @@ export class PaymentRequestService {
     }
 
     public async createRequest(requesterId: string, responderId: string, amount: string): Promise<{ id: string; expiresAt: Date }> {
+        const parties = await prisma.user.findMany({
+            where: { id: { in: [requesterId, responderId] } },
+            select: { id: true, stellarWallet: true },
+        });
+        const requester = parties.find((u) => u.id === requesterId);
+        const responder = parties.find((u) => u.id === responderId);
+        if (!requester || !responder) {
+            throw new PaymentRequestError('unknown_user');
+        }
+        if (!this.parseWallet(responder.stellarWallet)) {
+            throw new PaymentRequestError('no_wallet');
+        }
+
         const pendingCount = await prisma.paymentRequest.count({
             where: { requesterId, status: 'PENDING' },
         });

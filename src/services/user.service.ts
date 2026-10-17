@@ -13,6 +13,13 @@ const whatsappService = new WhatsAppService();
 
 import { isSupportedLanguage } from './locale.service';
 
+export class UnknownUserError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = 'UnknownUserError';
+    }
+}
+
 export class UserService {
     public async getOrCreateUser(phoneNumber: string, locale?: string): Promise<any> {
         let user = await prisma.user.findFirst({
@@ -69,6 +76,22 @@ export class UserService {
                 }
             });
             console.log(`Created new user for ${phoneNumber} with wallet ${wallet.publicKey}`);
+        }
+        return user;
+    }
+
+    public async requireUser(target: string): Promise<any> {
+        const user = await this.resolveUser(target);
+        if (!user) {
+            throw new UnknownUserError(`User not found: ${target}`);
+        }
+        return user;
+    }
+
+    public async requireUserWithWallet(target: string): Promise<any> {
+        const user = await this.requireUser(target);
+        if (!user.stellarWallet) {
+            throw new UnknownUserError(`User has no wallet: ${target}`);
         }
         return user;
     }
