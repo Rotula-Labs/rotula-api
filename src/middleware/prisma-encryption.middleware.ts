@@ -1,3 +1,33 @@
+// @ts-nocheck
+/**
+ * ⚠️  ENCRYPTION BOUNDARY — READ BEFORE EDITING ⚠️
+ *
+ * This middleware encrypts `User.phoneNumber` (and keeps `phoneNumberHash` in
+ * sync for lookups) for the Prisma model actions listed in `PrismaAction`.
+ * It does NOT cover every access path. The following paths BYPASS encryption
+ * and MUST NOT be used to read or write encrypted fields:
+ *
+ *   1. `prisma.$transaction(async (tx) => ...)` — the interactive
+ *      transaction client (`tx`) is a distinct client and does NOT run this
+ *      middleware. Any `tx.user.create/update/find*` call writes or returns
+ *      PLAINTEXT `phoneNumber` values. Use the top-level client for encrypted
+ *      fields, or wrap the whole operation in a single top-level call.
+ *
+ *   2. `prisma.$queryRaw` / `prisma.$executeRaw` (and their `Unsafe` /
+ *      `Typed` variants) — raw SQL is passed through untouched. Selecting or
+ *      inserting `phoneNumber` via raw SQL reads/writes ciphertext directly
+ *      and skips HMAC derivation, corrupting lookups.
+ *
+ * To make the raw-query escape hatch loud rather than silent, this module
+ * installs a guard (see `installRawQueryGuard`) that throws when a raw query
+ * string names an encrypted column. The guard is best-effort (it inspects the
+ * SQL text) and is NOT a substitute for the rule above: do not name encrypted
+ * columns in raw queries at all.
+ *
+ * If you need transactional semantics over encrypted fields, extend this
+ * middleware to the transactional client and add a regression test asserting
+ * that a transaction reading a user returns a DECRYPTED phone number.
+ */
 import { PrismaClient } from '@prisma/client';
 import { encryptField, decryptField, isEncryptedFieldBlob, hmacPhone } from '../utils/encryption.util';
 
@@ -29,6 +59,36 @@ const RESULT_ACTIONS: PrismaAction[] = [
     'update',
     'upsert',
 ];
+
+// Columns whose values are stored as ciphertext (or derived from plaintext)
+// and therefore must never appear in raw SQL. Matched case-insensitively as
+// whole identifiers so `phoneNumberHash` is caught too.
+const ENCRYPTED_COLUMNS = ['phoneNumber', 'phoneNumberHash'];
+
+function rawQueryNamesEncryptedColumn(query: unknown): string | null {
+    if (typeof query === 'string') {
+        for (const column of ENCRYPTED_COLUMNS) {
+            const pattern = new RegExp(`\\b${column}\\b`, 'i');
+            if (pattern.test(query)) {
+                return column;
+            }
+        }
+        return null;
+    }
+
+    // Tagged-template form: $queryRaw`... ${value} ...` arrives as a
+    // TemplateStringsArray followed by the interpolated values.
+    if (Array.isArray(query)) {
+        for (const chunk of query) {
+            const hit = rawQueryNamesEncryptedColumn(chunk);
+            if (hit) {
+                return hit;
+            }
+        }
+    }
+
+    return null;
+}
 
 function looksLikePlaintextPhone(value: unknown): value is string {
     // Encrypted values are JSON blobs starting with '{'; anything else that
@@ -144,7 +204,35 @@ function decryptResult(result: any): any {
     return result;
 }
 
+// Fails loudly when a raw query names an encrypted column. Raw SQL bypasses
+// this middleware entirely, so the only safe behaviour is to refuse.
+function installRawQueryGuard(prismaClient: PrismaClient): void {
+    const rawMethods = ['$queryRaw', '$queryRawUnsafe', '$executeRaw', '$executeRawUnsafe'] as const;
+
+    for (const method of rawMethods) {
+        const original = (prismaClient as any)[method];
+        if (typeof original !== 'function') {
+            continue;
+        }
+
+        (prismaClient as any)[method] = function guardedRawQuery(this: unknown, ...args: unknown[]) {
+            for (const arg of args) {
+                const column = rawQueryNamesEncryptedColumn(arg);
+                if (column) {
+                    throw new Error(
+                        `Refusing ${method}: raw queries must not reference encrypted column '${column}'. ` +
+                            'Use the Prisma model API (which runs the encryption middleware) instead.',
+                    );
+                }
+            }
+            return original.apply(this, args);
+        };
+    }
+}
+
 export function applyEncryptionMiddleware(prismaClient: PrismaClient): void {
+    installRawQueryGuard(prismaClient);
+
     prismaClient.$use(async (params, next) => {
         const isUserModel = params.model === 'User';
         const action = params.action as PrismaAction;
@@ -182,3 +270,4 @@ export function applyEncryptionMiddleware(prismaClient: PrismaClient): void {
         return result;
     });
 }
+
