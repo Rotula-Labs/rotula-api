@@ -1,4 +1,4 @@
-import { StellarService, InsufficientReserveError } from '../services/stellar.service';
+import { StellarService, InsufficientReserveError, resolveNetwork } from '../services/stellar.service';
 import * as StellarSdk from '@stellar/stellar-sdk';
 import { config } from '../config/env';
 import { decrypt } from '../utils/encryption.util';
@@ -92,6 +92,30 @@ describe('StellarService', () => {
         mockRedisKeys.mockResolvedValue([]);
     });
 
+    describe('resolveNetwork', () => {
+        it('should resolve TESTNET to the testnet horizon and passphrase', () => {
+            const network = resolveNetwork('TESTNET');
+
+            expect(network.horizonUrl).toBe('https://horizon-testnet.stellar.org');
+            expect(network.passphrase).toBe(StellarSdk.Networks.TESTNET);
+        });
+
+        it('should resolve PUBLIC to the public horizon and passphrase', () => {
+            const network = resolveNetwork('PUBLIC');
+
+            expect(network.horizonUrl).toBe('https://horizon.stellar.org');
+            expect(network.passphrase).toBe(StellarSdk.Networks.PUBLIC);
+        });
+
+        it('should reject unsupported network values naming the variable and accepted values', () => {
+            expect(() => resolveNetwork('testnet')).toThrow(/STELLAR_NETWORK/);
+            expect(() => resolveNetwork('testnet')).toThrow(/TESTNET/);
+            expect(() => resolveNetwork('testnet')).toThrow(/PUBLIC/);
+            expect(() => resolveNetwork('PUBLIC ')).toThrow(/STELLAR_NETWORK/);
+            expect(() => resolveNetwork('STAGING')).toThrow(/STELLAR_NETWORK/);
+        });
+    });
+
     describe('generateWallet', () => {
         it('should return a generated keypair with encrypted raw seed', () => {
             const wallet = stellarService.generateWallet();
@@ -114,6 +138,13 @@ describe('StellarService', () => {
             new StellarService();
 
             expect(StellarSdk.Horizon.Server).toHaveBeenCalledWith('https://horizon.stellar.org');
+        });
+
+        it('should use the testnet horizon when configured for testnet', () => {
+            config.STELLAR_NETWORK = 'TESTNET';
+            new StellarService();
+
+            expect(StellarSdk.Horizon.Server).toHaveBeenCalledWith('https://horizon-testnet.stellar.org');
         });
     });
 
@@ -257,6 +288,21 @@ describe('StellarService', () => {
                 expect.anything(),
                 expect.objectContaining({
                     networkPassphrase: StellarSdk.Networks.PUBLIC,
+                }),
+            );
+        });
+
+        it('should use the testnet network passphrase when configured for testnet', async () => {
+            config.STELLAR_NETWORK = 'TESTNET';
+            stellarService = new StellarService();
+
+            const validPublicKey = 'GBBM6BKZPEHWPI3VK3VNKEJEXTMIGNNCE2ZEXSVEEKSJNDYTK2E4QUDE';
+            await stellarService.sendPayment(mockSeed, validPublicKey, '10.0');
+
+            expect(StellarSdk.TransactionBuilder).toHaveBeenCalledWith(
+                expect.anything(),
+                expect.objectContaining({
+                    networkPassphrase: StellarSdk.Networks.TESTNET,
                 }),
             );
         });

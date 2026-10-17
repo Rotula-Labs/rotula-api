@@ -13,6 +13,30 @@ if (!process.env.JWT_SECRET) {
     throw new Error('JWT_SECRET environment variable is required');
 }
 
+export const SUPPORTED_STELLAR_NETWORKS = ['TESTNET', 'PUBLIC'] as const;
+export type StellarNetwork = typeof SUPPORTED_STELLAR_NETWORKS[Number];
+
+const rawStellarNetwork = process.env.STELLAR_NETWORK || 'TESTNET';
+if (!SUPPORTED_STELLAR_NETWORKS.includes(rawStellarNetwork as StellarNetwork)) {
+    throw new Error(
+        `STELLAR_NETWORK must be one of ${SUPPORTED_STELLAR_NETWORKS.join(', ')} (got "${rawStellarNetwork}")`
+    );
+}
+const stellarNetwork = rawStellarNetwork as StellarNetwork;
+
+export const STELLAR_NETWORK_CONFIG = {
+    TESTNET: {
+        horizonUrl: 'https://horizon-testnet.stellar.org',
+        networkPassphrase: 'Test SDF Network ; September 2015',
+    },
+    PUBLIC: {
+        horizonUrl: 'https://horizon.stellar.org',
+        networkPassphrase: 'Public Global Stellar Network ; September 2015',
+    },
+} as const;
+
+export const stellarNetworkConfig = STELLAR_NETWORK_CONFIG[stellarNetwork];
+
 export const config = {
     PORT: process.env.PORT || 3000,
     WHATSAPP_TOKEN: process.env.WHATSAPP_TOKEN || '',
@@ -20,7 +44,7 @@ export const config = {
     WHATSAPP_APP_SECRET: process.env.WHATSAPP_APP_SECRET || '',
     VERIFY_TOKEN: process.env.VERIFY_TOKEN || 'kolo_verify_token',
     DATABASE_URL: process.env.DATABASE_URL || '',
-    STELLAR_NETWORK: process.env.STELLAR_NETWORK || 'TESTNET', // TESTNET or PUBLIC
+    STELLAR_NETWORK: stellarNetwork,
     REDIS_URL: process.env.REDIS_URL || 'redis://localhost:6379',
     ENCRYPTION_KEY: process.env.ENCRYPTION_KEY || '', // Must be a 32-byte hex string
     CURRENT_ENCRYPTION_KEY_VERSION: currentVersionParsed,
@@ -30,7 +54,7 @@ export const config = {
         3: process.env.ENCRYPTION_KEY_V3 || '',
     } as Record<number, string>,
     HMAC_KEY: process.env.HMAC_KEY || '', // Must be a 32-byte hex string, different from ENCRYPTION_KEY
-    USDC_ISSUER_PUBLIC_KEY: process.env.USDC_ISSUER_PUBLIC_KEY || '', // SDF testnet issuer or Circle/centre.io mainnet issuer, depending on STELLAR_NETWORK
+    USDC_ISSUER_PUBLIC_KEY: process.env.USDC_ISSUER_PUBLIC_KEY || '', // SDF Testnet issuer or Circle/centre.io mainnet issuer, depending on STELLAR_NETWORK
     SOROBAN_RPC_URL: process.env.SOROBAN_RPC_URL || 'https://soroban-testnet.stellar.org',
     CONTRACT_WASM_PATH: process.env.CONTRACT_WASM_PATH || 'contracts/savings_group.wasm',
     DEPLOYER_SECRET_KEY: process.env.DEPLOYER_SECRET_KEY || '',
@@ -41,5 +65,6 @@ export const config = {
     SEP10_HOME_DOMAIN: process.env.SEP10_HOME_DOMAIN || 'localhost',
     JWT_SECRET: process.env.JWT_SECRET,
     SEP10_CHALLENGE_TTL_SECONDS: parseInt(process.env.SEP10_CHALLENGE_TTL_SECONDS || '300', 10),
+    STELLAR_HORIZON_URL: stellarNetworkConfig.horizonUrl,
+    STELLAR_NETWORK_PASSPHRASE: stellarNetworkConfig.networkPassphrase,
 };
-
