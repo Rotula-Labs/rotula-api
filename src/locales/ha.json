@@ -85,7 +85,10 @@
     "invalid_format": "❌ Tsarin adadi ba daidai bane. Don Allah sa lambar da ta wuce sifili (misali, 10 ko 10.50).",
     "zero_amount": "❌ Dole adadi ya wuce sifili.",
     "precision_exceeded": "❌ Ba za a iya samun adadi fiye da maki na 7 bayan ɗigo ba.",
-    "exceeds_max": "❌ Adadin ya wuce yawan da aka yarda da shi (1,000,000 XLM)."
+    "exceeds_max": "❌ Adadin ya wuce yawan da aka yarda da shi (1,000,000 XLM).",
+    "not_positive": "❌ Dole adadi ya zama lamba mai kyau da ta wuce sifili.",
+    "too_many_decimals": "❌ Adadi ba zai iya samun fiye da maki na 7 bayan ɗigo ba.",
+    "exceeds_maximum": "❌ Adadin ya wuce iyakar da aka yarda da shi (1,000,000 XLM)."
   },
   "withdraw": {
     "usage": "Amfani: WITHDRAW <adadi>",

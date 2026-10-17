@@ -107,6 +107,9 @@
         "precision_exceeded": "❌ Amount cannot have more than 7 decimal places.",
         "exceeds_max": "❌ Amount exceeds the maximum allowed (1,000,000 XLM)."
     },
+    "group": {
+        "invalid_amount": "❌ Invalid contribution amount: {{reason}}"
+    },
     "withdraw": {
         "usage": "Usage: WITHDRAW <amount>",
         "no_group": "Error: You are not part of any group.",

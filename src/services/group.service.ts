@@ -1,34 +1,13 @@
 import { PrismaClient, Prisma } from '@prisma/client';
+import { validateAmount } from './amount-validator';
 import { scheduleGroupCycle, removeGroupCycle } from '../queue/contribution-scheduler.queue';
 import { enqueueContractDeployment } from '../queue/soroban-deployment.queue';
 
 const prisma = new PrismaClient();
 
 export class GroupService {
-    /**
-     * Validates a contribution amount at the service boundary — the last line
-     * of defence before a value reaches the database or the blockchain.
-     *
-     * Throws with a descriptive message so callers can surface it to the user.
-     */
-    private static validateAmount(amount: string | Prisma.Decimal): void {
-        const numericValue = typeof amount === 'string' ? parseFloat(amount) : Number(amount);
-        if (isNaN(numericValue) || numericValue <= 0) {
-            throw new Error('Contribution amount must be a positive number greater than zero.');
-        }
-        if (typeof amount === 'string') {
-            const decimalPart = amount.includes('.') ? amount.split('.')[1] : '';
-            if (decimalPart.length > 7) {
-                throw new Error('Amount cannot have more than 7 decimal places.');
-            }
-        }
-        if (numericValue > 1_000_000) {
-            throw new Error('Amount exceeds the maximum allowed (1,000,000 XLM).');
-        }
-    }
-
     public async createGroup(userId: string, name: string, amount: string | Prisma.Decimal, frequency: string) {
-        GroupService.validateAmount(amount);
+        validateAmount(amount);
         const group = await prisma.savingsGroup.create({
             data: {
                 name,
@@ -113,7 +92,7 @@ export class GroupService {
     }
 
     public async addContribution(userId: string, groupId: string, amount: string | Prisma.Decimal, txHash: string, status: 'COMPLETED' | 'PENDING' | 'FAILED' = 'COMPLETED') {
-        GroupService.validateAmount(amount);
+        validateAmount(amount);
         return await prisma.contribution.create({
             data: {
                 userId,

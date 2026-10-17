@@ -6,8 +6,8 @@
   },
   "history": {
     "fetching": "[HISTORY] We dey find your transaction history for {{phone}}...",
-    "header": "📜 Your Transactions (Last 10):\n\n",
-    "item_sent": "{{index}}. ✅ You send {{amount}} {{asset}} go {{counterparty}}\n   {{date}} • tx: {{hash}}",
+    "header": "🜜 Your Transactions (Last 10):\n\n",
+    "item_sent": "{{index}}. ★ You send {{amount}} {{asset}} go {{counterparty}}\n   {{date}} • tx: {{hash}}",
     "item_received": "{{index}}. 📥 You collect {{amount}} {{asset}} from {{counterparty}}\n   {{date}} • tx: {{hash}}",
     "item_other": "{{index}}. 🔄 {{type}} ({{amount}} {{asset}})\n   {{date}} • tx: {{hash}}",
     "more": "\nReply HISTORY MORE to see older transactions",
@@ -20,7 +20,7 @@
     "card": "*Kolo Profile*\nPhone: {{phone}}\nUsername: {{username}}\nWallet: {{wallet}}\nJoined: {{joined}}"
   },
   "send": {
-    "usage": "How to use: SEND <amount> <@username or phone>",
+    "usage": "How to use: SELD <amount> <@username or phone>",
     "no_wallet": "Error: You never setup your wallet.",
     "no_recipient": "Error: We no see wallet for {{target}}.",
     "initiating": "[SEND] We dey try send {{amount}} XLM go {{target}}...",
@@ -28,14 +28,14 @@
     "failed": "❌ [SEND] E fail: {{message}}"
   },
   "request": {
-    "usage": "How to use: REQUEST <amount> <@username or phone>",
+    "usage": "How to use: REQUEST [amount> <@username or phone>",
     "no_user": "Error: We no find user {{target}}.",
-    "notify_recipient": "🔔 [REQUEST] {{sender}} dey ask you for {{amount}} XLM. Reply with: SEND {{amount}} {{senderPhone}}",
+    "notify_recipient": "🔔 [REQUEST] {{sender}} dey ask you for {{amount}} XLM. Reply with: SELD {{amount}} {{senderPhone}}",
     "confirmation": "[REQUEST] We don send request for {{amount}} XLM go {{target}}."
   },
   "create_group": {
     "usage": "How to use: CREATE GROUP <name> <amount> <frequency>",
-    "success": "✅ Group \"{{name}}\" don ready!\nGroup ID: {{id}}",
+    "success": "✅ Group \" {{name}}\" don ready!\nGroup ID: {{id}}",
     "failed": "❌ We no fit create group: {{message}}"
   },
   "join_group": {
@@ -93,7 +93,7 @@
     "success": "✅ You don successfully withdraw {{amount}} XLM from \"{{groupName}}\"! (MOCKED)"
   },
   "help": {
-    "text": "*Kolo Commands:*\n\n_Account_\nBALANCE\nBALANCE <asset>\nHISTORY\nPROFILE\n\n_Payments_\nSEND <amount> <@user>\nREQUEST <amount> <@user>\n\n_Savings Groups_\nCREATE GROUP <name> <amount> <frequency>\nJOIN GROUP <groupId>\nINVITE MEMBER <@user>\nGROUP STATUS\nCONTRIBUTE <amount>\nWITHDRAW <amount>\n\n_Payout Rotation_\nPAYOUT ORDER <@user1> <@user2> ...\nPAYOUT STATUS\nPAYOUT WAIT\nPAYOUT PROCEED\nPAYOUT SKIP <@user>\n\n_Support_\nHELP\nSUPPORT"
+    "text": "*Kolo Commands:*\n\n_Account_\nBALANCE\nBALANCE <asset>\nHISTORY\nPROFILE\n\n_Payments_\nSEND <amount> <@user>\nREQUEST [amount> <@user>\n\n_Savings Groups_\nCREATE GROUP <name> <amount> <frequency>\nJOIN GROUP <groupId>\nINVITE MEMBER <@user>\nGROUP STATUS\nCONTRIBUTE <amount>\nWITHDRAW <amount>\n\n_Payout Rotation_\nPAYOUT ORDER <@user1> <@user2> ...\nPAYOUT STATUS\nPAYOUT WAIT\nPAYOUT PROCEED\nPAYOUT SKIP <@user>\n\n_Support_\nHELP\nSUPPORT"
   },
   "unknown": {
     "command": "I no understand that command. Send HELP to see commands wey dey work."
