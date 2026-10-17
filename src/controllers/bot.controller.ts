@@ -1,7 +1,7 @@
-import type { Request, Response } from 'express';
-import { config } from '../config/env';
+import type { Request, Response } from 'express'; import { config } from '../config/env';
 import { enqueueMessage, type MessageJobData } from '../queue/message.queue';
 import { observabilityService } from '../services/observability.service';
+import { readFirstMessage, type WhatsAppWebhookBody } from '../webhook/webhook-body';
 
 /**
  * Hard upper bound on how long we wait for a message to be enqueued before
@@ -9,43 +9,6 @@ import { observabilityService } from '../services/observability.service';
  * webhook request (and the WhatsApp delivery) open indefinitely.
  */
 const ENQUEUE_TIMEOUT_MS = 10_000;
-
-/**
- * Minimal, defensively-typed shape of the WhatsApp Cloud API webhook payload.
- * Every field is optional because the payload is attacker-controllable: the
- * webhook is public, so we must treat the body as untrusted and never assume a
- * field exists. We only model the slice we actually read.
- */
-interface WhatsAppContact {
-    wa_id?: string;
-    profile?: {
-        name?: string;
-    };
-}
-
-interface WhatsAppTextMessage {
-    from?: string;
-    id?: string;
-    text?: { body?: string };
-}
-
-interface WhatsAppChangeValue {
-    messages?: WhatsAppTextMessage[];
-    contacts?: WhatsAppContact[];
-}
-
-interface WhatsAppChange {
-    value?: WhatsAppChangeValue;
-}
-
-interface WhatsAppEntry {
-    changes?: WhatsAppChange[];
-}
-
-interface WhatsAppWebhookBody {
-    object?: unknown;
-    entry?: WhatsAppEntry[];
-}
 
 export interface IncomingTextMessage {
     from: string;
@@ -66,7 +29,7 @@ export class BotController {
         }
 
         if (mode === 'subscribe' && token === config.VERIFY_TOKEN) {
-            console.log('WEBHOOK_VERIFIED');
+            console.log('WEBHOOKVERIFIED');
             res.status(200).send(typeof challenge === 'string' ? challenge : '');
             return;
         }
@@ -76,18 +39,18 @@ export class BotController {
 
     /**
      * Safely extract the first inbound text message from a (possibly malformed
-     * or malicious) webhook body. Optional chaining is used end-to-end so a
-     * partial or garbage payload can never throw a TypeError.
-     * Returns null when there is no actionable text message.
+     * or malicious) webhook body. The shared accessor uses optional chaining
+     * end-to-end so a partial or garbage payload can never throw a TypeError.
+     * This controller applies the stricter validation: non-empty strings and a
+     * required message id. Returns null when there is no actionable text
+     * message.
      */
     private extractTextMessage(body: WhatsAppWebhookBody): IncomingTextMessage | null {
-        const value = body.entry?.[0]?.changes?.[0]?.value;
-        const message = value?.messages?.[0];
-        const contacts = value?.contacts;
-        
-        const from = message?.from;
-        const msgBody = message?.text?.body;
-        const id = message?.id;
+        const message = readFirstMessage(body);
+
+        const from = message.from;
+        const msgBody = message.text?.body;
+        const id = message.id;
 
         if (typeof from !== 'string' || typeof msgBody !== 'string' || msgBody.length === 0 || typeof id !== 'string') {
             return null;
@@ -95,7 +58,7 @@ export class BotController {
 
         // Try to extract locale if available in contacts metadata for this sender (e.g., from WhatsApp profile)
         let locale: string | undefined;
-        const contact = contacts?.find(c => c.wa_id === from);
+        const contact = message.contacts?.find(c => c.wa_id === from);
         if (contact && (contact as any).profile?.locale) {
             locale = (contact as any).profile.locale;
         }

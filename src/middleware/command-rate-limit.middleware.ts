@@ -4,6 +4,7 @@ import { redisClient } from '../lib/redis';
 import { WhatsAppService } from '../services/whatsapp.service';
 import { t, initI18n } from '../services/locale.service';
 import { abuseDetectionService } from '../services/abuse-detection.service';
+import { readFirstMessage } from '../lib/whatsapp-webhook';
 
 const whatsappService = new WhatsAppService();
 
@@ -60,7 +61,7 @@ export function extractMessageDetails(req: any): { phoneNumber: string | null; c
         }
     }
 
-    const message = body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
+    const message = readFirstMessage(body);
     const from = message?.from;
     const msgBody = message?.text?.body;
 
