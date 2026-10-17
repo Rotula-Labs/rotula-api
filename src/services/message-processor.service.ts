@@ -183,7 +183,22 @@ export class MessageProcessor {
             return await this.whatsappService.sendMessage(from, t('balance.no_wallet', lang));
         }
         const { publicKey } = JSON.parse(user.stellarWallet);
-        const balances = await this.stellarService.checkBalance(publicKey);
+        let balances;
+        try {
+            balances = await this.stellarService.checkBalance(publicKey);
+        } catch (error: any) {
+            console.error('Balance lookup failed:', error);
+            return await this.whatsappService.sendMessage(
+                from,
+                t('balance.unavailable', lang),
+            );
+        }
+
+        // An account with no funds still returns an empty list (not an error),
+        // so this renders as an empty balance rather than an unavailable one.
+        if (balances.length === 0) {
+            return await this.whatsappService.sendMessage(from, t('balance.empty', lang));
+        }
 
         const assetFilter = args[0]?.toUpperCase();
         const shown = assetFilter ? balances.filter((b) => b.assetCode === assetFilter) : balances;
