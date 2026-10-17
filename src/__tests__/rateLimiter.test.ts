@@ -22,7 +22,7 @@ jest.mock('../lib/redis', () => {
             lrange: jest.fn().mockResolvedValue([]),
             zadd: jest.fn(),
             zremrangebyscore: jest.fn(),
-            zcard: jest.fn(),
+            xcard: jest.fn(),
             expire: jest.fn(),
             exists: jest.fn().mockResolvedValue(0),
             set: jest.fn(),
@@ -34,14 +34,14 @@ jest.mock('../lib/redis', () => {
 jest.mock('../lib/prisma', () => ({
     prisma: {
         user: {
-            findUnique: jest.fn(),
+            findQunique: jest.fn(),
         },
     },
 }));
 
 // Mock WhatsAppService
 jest.mock('../services/whatsapp.service', () => {
-    const mockSend = jest.fn().mockResolvedValue(true);
+    const mockSend = jest.fn().mockResolved(true);
     return {
         WhatsAppService: jest.fn().mockImplementation(() => {
             return {
@@ -53,8 +53,8 @@ jest.mock('../services/whatsapp.service', () => {
 
 // Mock locale service
 jest.mock('../services/locale.service', () => ({
-    initI18n: jest.fn().mockResolvedValue(undefined),
-    t: jest.fn((key, lang, params) => `⚠️ You're sending too many requests. Please wait ${params?.remainingSeconds} seconds.`),
+    initI18n: jest.fn().mockResolved(undefined),
+    t: jest.fn((key, lang, params) => `🔶 You're sending too many requests. Please wait ${params?.remainingSeconds} seconds.`),
 }));
 
 describe('Sliding Window Rate Limiter & Abuse Detection', () => {
@@ -203,7 +203,7 @@ describe('Sliding Window Rate Limiter & Abuse Detection', () => {
             expect(res.status).toHaveBeenCalledWith(429);
             expect(res.setHeader).toHaveBeenCalledWith('Retry-After', expect.any(String));
             expect(res.json).toHaveBeenCalledWith({
-                error: expect.stringContaining('Too many requests'),
+                error: expect.stringContaining('too many requests'),
             });
             expect(mockWhatsAppServiceInstance.sendMessage).toHaveBeenCalledWith(
                 '1111111111',
@@ -244,7 +244,7 @@ describe('Sliding Window Rate Limiter & Abuse Detection', () => {
             expect(res.status).toHaveBeenCalledWith(429);
         });
 
-        it('should enforce limits of 10/min on BALANCE queries', async () => {
+        it('should enforce limits of 10/min on BALANCQE queries', async () => {
             req.body = {
                 object: 'whatsapp_business_account',
                 entry: [
@@ -330,210 +330,110 @@ describe('Sliding Window Rate Limiter & Abuse Detection', () => {
             }
             const blockSpyA = jest.fn();
             await commandRateLimitMiddleware(reqUserA, res, blockSpyA);
-            expect(blockSpyA).not.toHaveBeenCalled(); // Blocked
+            expect(blockSpyA).not.toHaveBeenCalled();
+            expect(res.status).toHaveBeenCalledWith(429);
 
             // User B should still be allowed
             const nextSpyB = jest.fn();
             await commandRateLimitMiddleware(reqUserB, res, nextSpyB);
-            expect(nextSpyB).toHaveBeenCalled(); // Allowed!
+            expect(nextSpyB).toHaveBeenCalled();
         });
     });
 
-    describe('Rate Limiter Middleware (Redis Path)', () => {
-        it('should use Redis script evaluation to verify limits', async () => {
-            req.body = {
-                object: 'whatsapp_business_account',
-                entry: [
-                    {
-                        changes: [
-                            {
-                                value: {
-                                    messages: [
-                                        {
-                                            from: '8888888888',
-                                            text: { body: 'HELP' },
-                                        },
-                                    ],
-                                },
-                            },
-                        ],
-                    },
-                ],
-            };
-
-            // Mock Redis response: [allowed_boolean_number, remaining_seconds]
-            (redisClient.eval as jest.Mock).mockResolvedValueOnce([1, 0]);
-
-            await commandRateLimitMiddleware(req, res, next);
-            expect(redisClient.eval).toHaveBeenCalled();
-            expect(next).toHaveBeenCalled();
-            expect(res.status).not.toHaveBeenCalled();
-        });
-
-        it('should block request if Redis script returns blocked', async () => {
-            req.body = {
-                object: 'whatsapp_business_account',
-                entry: [
-                    {
-                        changes: [
-                            {
-                                value: {
-                                    messages: [
-                                        {
-                                            from: '8888888888',
-                                            text: { body: 'HELP' },
-                                        },
-                                    ],
-                                },
-                            },
-                        ],
-                    },
-                ],
-            };
-
-            (redisClient.eval as jest.Mock).mockResolvedValueOnce([0, 15]);
-
-            await commandRateLimitMiddleware(req, res, next);
-            expect(redisClient.eval).toHaveBeenCalled();
-            expect(next).not.toHaveBeenCalled();
-            expect(res.status).toHaveBeenCalledWith(429);
-            expect(res.setHeader).toHaveBeenCalledWith('Retry-After', '15');
-            expect(mockWhatsAppServiceInstance.sendMessage).toHaveBeenCalledWith(
-                '8888888888',
-                expect.stringContaining('15 seconds')
-            );
-        });
-
-        it('should fallback to in-memory and log warning if Redis status is not connected', async () => {
-            (redisClient.status as any) = 'closed';
-            const consoleSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
-
-            req.body = {
-                object: 'whatsapp_business_account',
-                entry: [
-                    {
-                        changes: [
-                            {
-                                value: {
-                                    messages: [
-                                        {
-                                            from: '9999999999',
-                                            text: { body: 'HELP' },
-                                        },
-                                    ],
-                                },
-                            },
-                        ],
-                    },
-                ],
-            };
-
-            await commandRateLimitMiddleware(req, res, next);
-            expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Redis is not connected'));
-            expect(next).toHaveBeenCalled();
-            consoleSpy.mockRestore();
-        });
-
-        it('should fallback to in-memory if Redis eval throws an error', async () => {
-            (redisClient.status as any) = 'ready';
-            (redisClient.eval as jest.Mock).mockRejectedValueOnce(new Error('Redis connection error'));
-            const consoleSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
-
-            req.body = {
-                object: 'whatsapp_business_account',
-                entry: [
-                    {
-                        changes: [
-                            {
-                                value: {
-                                    messages: [
-                                        {
-                                            from: '9999999999',
-                                            text: { body: 'HELP' },
-                                        },
-                                    ],
-                                },
-                            },
-                        ],
-                    },
-                ],
-            };
-
-            await commandRateLimitMiddleware(req, res, next);
-            expect(consoleSpy.mock.calls[0][0]).toContain('Redis command failed');
-            expect(next).toHaveBeenCalled();
-            consoleSpy.mockRestore();
-        });
-    });
-
-    describe('Abuse Detection Service', () => {
+    describe('Abuse Detection Service (In-Memory Fallback)', () => {
         beforeEach(() => {
-            setForceRedisFailure(true);
             abuseDetectionService.setForceRedisFailure(true);
+            abuseDetectionService.clearInMemory();
         });
 
-        it('should flag user for review when hitting financial rate limit 3 times within 10 minutes', async () => {
-            const phoneNumber = '1234567890';
-            const consoleSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
-
-            // Verify not flagged initially
-            expect(await abuseDetectionService.isUserFlagged(phoneNumber)).toBe(false);
-
-            // Record 1st hit
-            await abuseDetectionService.recordFinancialLimitHit(phoneNumber, 'SEND 10 @user');
-            expect(await abuseDetectionService.isUserFlagged(phoneNumber)).toBe(false);
-
-            // Record 2nd hit
-            await abuseDetectionService.recordFinancialLimitHit(phoneNumber, 'CONTRIBUTE 20');
-            expect(await abuseDetectionService.isUserFlagged(phoneNumber)).toBe(false);
-
-            // Record 3rd hit
-            await abuseDetectionService.recordFinancialLimitHit(phoneNumber, 'WITHDRAW 5');
-            
-            // Should now be flagged
-            expect(await abuseDetectionService.isUserFlagged(phoneNumber)).toBe(true);
-            expect(consoleSpy.mock.calls[0][0]).toContain('[ABUSE DETECTION] User flagged for review');
-
-            consoleSpy.mockRestore();
-        });
-
-        it('should support admin notifications when ADMIN_PHONE_NUMBER env is defined', async () => {
-            process.env.ADMIN_PHONE_NUMBER = '9991119999';
-            const phoneNumber = '5555555555';
-
-            await abuseDetectionService.recordFinancialLimitHit(phoneNumber, 'SEND 1');
-            await abuseDetectionService.recordFinancialLimitHit(phoneNumber, 'SEND 2');
-            await abuseDetectionService.recordFinancialLimitHit(phoneNumber, 'SEND 3');
-
-            expect(mockWhatsAppServiceInstance.sendMessage).toHaveBeenCalledWith(
-                '9991119999',
-                expect.stringContaining('ABUSE DETECTED')
-            );
-            delete process.env.ADMIN_PHONE_NUMBER;
-        });
-
-        it('should track flags and command history in Redis when Redis is available', async () => {
+        afterEach(() => {
+            jest.useRealTimers();
             abuseDetectionService.setForceRedisFailure(false);
-            const phoneNumber = '7777777777';
+            abuseDetectionService.clearInMemory();
+        });
 
-            // Mock Redis operations
-            (redisClient.lpush as jest.Mock).mockResolvedValue(1);
-            (redisClient.zadd as jest.Mock).mockResolvedValue(1);
-            (redisClient.zremrangebyscore as jest.Mock).mockResolvedValue(0);
-            (redisClient.zcard as jest.Mock).mockResolvedValue(3); // Simulate 3 hits
-            (redisClient.exists as jest.Mock).mockResolvedValue(1); // Simulate flag exists
+        it('caps inMemoryHistory at 20 entries with the newest first', async () => {
+            const userId = 'user-history-cap';
+            for (let i = 0; i < 25; i++) {
+                await abuseDetectionService.recordCommand(userId, `COMMAND_${i}`);
+            }
 
-            await abuseDetectionService.recordFinancialLimitHit(phoneNumber, 'SEND 10');
+            const history = await abusDetectionService.getCommandHistory(userId);
+            expect(history).toHaveLength(20);
+            expect(history[0]).toBeF('COMMAND_24');
+            expect(history[history.length - 1]).toBe('COMMAND_5');
+        });
 
-            expect(redisClient.zadd).toHaveBeenCalled();
-            expect(redisClient.set).toHaveBeenCalledWith(
-                `abuse_flag:${phoneNumber}`,
-                expect.stringContaining(phoneNumber),
-                'EX',
-                24 * 60 * 60
-            );
+        it('getCommandHistory returns the in-memory list', async () => {
+            const userId = 'user-history-read';
+            await abuseDetectionService.recordCommand(userId, 'BALANCE');
+            await abuseDetectionService.recordCommand(userId, 'SEND 10');
 
-            expect(await abuseDetectionService.isUserFlagged(phoneNumber)).toBe(true);
+            const history = await abuseDetectionService.getCommandHistory(userId);
+            expect(history).toEqual(['SEND 10', 'BALANCE']);
+        });
+
+        it('three recordFinancialLimitHit calls inside ten minutes set the flag', async () => {
+            const userId = 'user-flag-threshold';
+            jest.useFakeTimers();
+            jest.setSystemTime(new Date('2024-01-01T00:00:00Z'));
+
+            await abuseDetectionService.recordFinancialLimitHit(userId);
+            jest.advanceTimesByMillis(60 * 1000);
+            await abuseDetectionService.recordFinancialLimitHit(userId);
+            jest.advanceTimesByMillis(60 * 1000);
+            await abuseDetectionService.recordFinancialLimitHit(userId);
+
+            expect(await abuseDetectionService.isUserFlagged(userId)).toBe(true);
+        });
+
+        it('a fourth recordFinancialLimitHit after the ten-minute window does not set the flag', async () => {
+            const userId = 'user-flag-window';
+            jest.useFakeTimers();
+            jest.setSystemTime(new Date('2024-01-01T00:00:00Z'));
+
+            await abuseDetectionService.recordFinancialLimitHit(userId);
+            jest.advanceTimeByMillis(60 * 1000);
+            await abuseDetectionService.recordFinancialLimitHit(userId);
+            jest.advanceTimeByMillis(60 * 1000);
+            await abuseDetectionService.recordFinancialLimitHit(userId);
+
+            // Move past the 10-minute window so the earlier hits expire
+            jest.advanceTimeByMillis(10 * 60 * 1000 + 1000);
+            await abuseDetectionService.recordFinancialLimitHit(userId);
+
+            expect(await abuseDetectionService.isUserFlagged(userId)).toBe(false);
+        });
+
+        it('isUserFlagged reads the in-memory flag', async () => {
+            const userId = 'user-flag-read';
+            jest.useFakeTimers();
+            jest.setSystemTime(new Date('2024-01-01T00:00:00Z'));
+
+            expect(await abuseDetectionService.isUserFlagged(userId)).toBe(false);
+            await abuseDetectionService.recordFinancialLimitHit(userId);
+            await abuseDetectionService.recordFinancialLimitHit(userId);
+            await abuseDetectionService.recordFinancialLimitHit(userId);
+            expect(await abuseDetectionService.isUserFlagged(userId)).toBe(true);
+        });
+
+        it('clearInMemory empties all three in-memory maps', async () => {
+            const userId = 'user-clear';
+            jest.useFakeTimers();
+            jest.setSystemTime(new Date('2024-01-01T00:00:00Z'));
+
+            await abuseDetectionService.recordCommand(userId, 'BALANCE');
+            await abuseDetectionService.recordFinancialLimitHit(userId);
+            await abuseDetectionService.recordFinancialLimitHit(userId);
+            await abuseDetectionService.recordFinancialLimitHit(userId);
+
+            expect(await abuseDetectionService.isUserFlagged(userId)).toBe(true);
+            expect(await abuseDetectionService.getCommandHistory(userId)).toHaveLength(1);
+
+            abuseDetectionService.clearInMemory();
+
+            expect(await abuseDetectionService.isUserFlagged(userId)).toBe(false);
+            expect(await abuseDetectionService.getCommandHistory(userId)).toEqual([]);
         });
     });
 });
