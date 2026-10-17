@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import { encryptField, hmacPhone, isEncryptedFieldBlob, decryptField } from '../src/utils/encryption.util';
+import { canonicalizePhone } from '../src/utils/phone.util';
 
 // Uses its own PrismaClient WITHOUT the encryption middleware so the script
 // sees exactly what is stored and performs the encryption explicitly.
@@ -48,7 +49,7 @@ async function main() {
                     data.phoneNumber = encryptField(user.phoneNumber);
                 }
 
-                data.phoneNumberHash = hmacPhone(plaintextOf(user.phoneNumber));
+                data.phoneNumberHash = hmacPhone(canonicalizePhone(plaintextOf(user.phoneNumber)));
 
                 // Compare-and-set on the original stored value so a phone
                 // number updated mid-backfill is not overwritten with a stale

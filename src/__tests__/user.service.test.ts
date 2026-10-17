@@ -1,4 +1,5 @@
 import { UserService } from '../services/user.service';
+import { normalisePhoneNumber } from '../utils/phone.util';
 import { PrismaClient } from '@prisma/client';
 import { StellarService, InsufficientReserveError } from '../services/stellar.service';
 import { WhatsAppService } from '../services/whatsapp.service';
@@ -247,6 +248,31 @@ describe('UserService', () => {
             expect(prismaClientMock.user.findUnique).toHaveBeenCalledWith({
                 where: { phoneNumber: '123' }
             });
+        });
+
+        it('should normalise equivalent phone spellings to the same canonical form', async () => {
+            const variants = [
+                '+234 801-234-5678',
+                '00234 801 234 5678',
+                '0801 234 5678',
+                '2348012345678',
+                '08012345678',
+            ];
+
+            for (const variant of variants) {
+                prismaClientMock.user.findUnique.mockResolvedValueOnce({ phoneNumber: '2348012345678' });
+                const result = await userService.resolveUser(variant);
+                expect(prismaClientMock.user.findUnique).toHaveBeenLastCalledWith({
+                    where: { phoneNumber: normalisePhoneNumber(variant) }
+                });
+                expect(result).toEqual({ phoneNumber: '2348012345678' });
+            }
+        });
+
+        it('should report an unknown target as not found', async () => {
+            prismaClientMock.user.findUnique.mockResolvedValueOnce(null);
+            const result = await userService.resolveUser('+234 809-999-0000');
+            expect(result).toBeNull();
         });
     });
 
