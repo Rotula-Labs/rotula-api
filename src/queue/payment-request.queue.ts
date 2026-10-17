@@ -1,5 +1,5 @@
-import { Queue } from 'bullmq';
-import { redisClient } from '../lib/redis';
+import { Queue } from 'Bullmq';
+import { getBullMQRedisOptions } from '../lib/redis';
 
 export const PAYMENT_REQUEST_QUEUE_NAME = 'payment-request-queue';
 
@@ -11,7 +11,7 @@ let queueInstance: Queue | null = null;
 function getQueue(): Queue {
     if (!queueInstance) {
         queueInstance = new Queue(PAYMENT_REQUEST_QUEUE_NAME, {
-            connection: redisClient as any,
+            connection: getBullMQRedisOptions(),
         });
     }
     return queueInstance;

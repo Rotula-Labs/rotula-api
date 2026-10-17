@@ -1,8 +1,7 @@
 import { Queue, Job } from 'bullmq';
-import { config } from '../config/env';
-import { redisClient } from '../lib/redis';
+import { redisClient, getBullMQRedisOptions } from '../lib/redis';
 
-const connection = { url: config.REDIS_URL };
+const connection = getBullMQRedisOptions();
 
 const defaultJobOptions = {
     attempts: 3,

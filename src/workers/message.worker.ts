@@ -1,14 +1,12 @@
 import { Worker } from 'bullmq';
-import { config } from '../config/env';
+import { getBullMQRedisOptions } from '../lib/redis';
 import { MessageProcessor } from '../services/message-processor.service';
 import { WhatsAppService } from '../services/whatsapp.service';
 import { StellarService } from '../services/stellar.service';
 import { UserService } from '../services/user.service';
 import { GroupService } from '../services/group.service';
 
-const connection = {
-    url: config.REDIS_URL,
-};
+const connection = getBullMQRedisOptions();
 
 let workerInstance: Worker | null = null;
 
