@@ -10,6 +10,10 @@ import { abuseDetectionService } from '../services/abuse-detection.service';
 import { redisClient } from '../lib/redis';
 import { prisma } from '../lib/prisma';
 import { WhatsAppService } from '../services/whatsapp.service';
+import { config } from '../config/env';
+import { hmacPhone } from '../utils/encryption.util';
+
+const TEST_HMAC_KEY = '3333333333333333333333333333333333333333333333333333333333333333';
 
 // Mock Redis client
 jest.mock('../lib/redis', () => {
@@ -65,6 +69,7 @@ describe('Sliding Window Rate Limiter & Abuse Detection', () => {
 
     beforeEach(() => {
         jest.clearAllMocks();
+        config.HMAC_KEY = TEST_HMAC_KEY;
         clearInMemoryStore();
         abuseDetectionService.clearInMemory();
         setForceRedisFailure(false);
@@ -366,6 +371,9 @@ describe('Sliding Window Rate Limiter & Abuse Detection', () => {
 
             await commandRateLimitMiddleware(req, res, next);
             expect(redisClient.eval).toHaveBeenCalled();
+            const evalRedisKey = (redisClient.eval as jest.Mock).mock.calls[0][2];
+            expect(evalRedisKey).toBe(`rate_limit:GENERAL:${hmacPhone('8888888888')}`);
+            expect(evalRedisKey).not.toContain('8888888888');
             expect(next).toHaveBeenCalled();
             expect(res.status).not.toHaveBeenCalled();
         });
@@ -512,9 +520,10 @@ describe('Sliding Window Rate Limiter & Abuse Detection', () => {
             delete process.env.ADMIN_PHONE_NUMBER;
         });
 
-        it('should track flags and command history in Redis when Redis is available', async () => {
+        it('should track flags and command history in Redis using hashed phone keys without plaintext phone numbers', async () => {
             abuseDetectionService.setForceRedisFailure(false);
             const phoneNumber = '7777777777';
+            const phoneHash = hmacPhone(phoneNumber);
 
             // Mock Redis operations
             (redisClient.lpush as jest.Mock).mockResolvedValue(1);
@@ -525,15 +534,32 @@ describe('Sliding Window Rate Limiter & Abuse Detection', () => {
 
             await abuseDetectionService.recordFinancialLimitHit(phoneNumber, 'SEND 10');
 
-            expect(redisClient.zadd).toHaveBeenCalled();
+            expect(redisClient.lpush).toHaveBeenCalledWith(
+                `command_history:${phoneHash}`,
+                expect.any(String)
+            );
+            expect((redisClient.lpush as jest.Mock).mock.calls[0][0]).not.toContain(phoneNumber);
+
+            expect(redisClient.zadd).toHaveBeenCalledWith(
+                `abuse_hits:${phoneHash}`,
+                expect.any(Number),
+                expect.any(String)
+            );
+            expect((redisClient.zadd as jest.Mock).mock.calls[0][0]).not.toContain(phoneNumber);
+
             expect(redisClient.set).toHaveBeenCalledWith(
-                `abuse_flag:${phoneNumber}`,
-                expect.stringContaining(phoneNumber),
+                `abuse_flag:${phoneHash}`,
+                expect.stringContaining(phoneHash),
                 'EX',
                 24 * 60 * 60
             );
+            const [flagKey, flagPayload] = (redisClient.set as jest.Mock).mock.calls[0];
+            expect(flagKey).not.toContain(phoneNumber);
+            expect(flagPayload).not.toContain(phoneNumber);
 
             expect(await abuseDetectionService.isUserFlagged(phoneNumber)).toBe(true);
+            expect(redisClient.exists).toHaveBeenCalledWith(`abuse_flag:${phoneHash}`);
+            expect((redisClient.exists as jest.Mock).mock.calls[0][0]).not.toContain(phoneNumber);
         });
     });
 });
