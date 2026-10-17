@@ -746,6 +746,74 @@ describe('MessageProcessor', () => {
         });
     });
 
+    describe('unreadable wallet blob (issue #254)', () => {
+        // processCommand() and each handler both load the user, so the mock
+        // must answer twice per command.
+        const queueUserWith = (stellarWallet?: string) => {
+            const user = {
+                id: 'u1',
+                phoneNumber: '12345',
+                username: 'john',
+                language: 'en',
+                stellarWallet,
+                createdAt: new Date(),
+            };
+            mockGetOrCreateUser.mockResolvedValueOnce(user).mockResolvedValueOnce(user);
+        };
+
+        const malformedBlobs: Array<[string, string]> = [
+            ['truncated JSON', '{"publicKey":"G_PUB","encryptedSecret":"ENC_SEC"'],
+            ['a pre-encryption bare public key', 'G_PUB'],
+            ['a JSON array', '["G_PUB"]'],
+            ['JSON without a public key', JSON.stringify({ encryptedSecret: 'ENC_SEC', iv: 'IV', authTag: 'TAG' })],
+        ];
+
+        it.each(malformedBlobs)('treats %s as unreadable instead of throwing', async (_label, blob) => {
+            queueUserWith(blob);
+
+            await processor.processCommand('12345', 'BALANCE');
+
+            expect(mockSendMessage).toHaveBeenCalledWith('12345', expect.stringContaining('wallet.unreadable'));
+            expect(mockSendMessage).not.toHaveBeenCalledWith('12345', expect.stringContaining('error.generic'));
+            expect(mockCheckBalance).not.toHaveBeenCalled();
+        });
+
+        it.each(['BALANCE', 'HISTORY', 'PROFILE', 'SEND 10 @jane', 'CONTRIBUTE 10'])(
+            'answers %s with the unreadable-wallet message',
+            async (command) => {
+                queueUserWith('{"publicKey":"G_PUB",');
+
+                await processor.processCommand('12345', command);
+
+                expect(mockSendMessage).toHaveBeenCalledWith('12345', expect.stringContaining('wallet.unreadable'));
+                expect(mockSendMessage).not.toHaveBeenCalledWith('12345', expect.stringContaining('error.generic'));
+            },
+        );
+
+        it('reports an unreadable recipient wallet as a missing recipient', async () => {
+            mockResolveUser.mockResolvedValueOnce({
+                id: 'u2',
+                phoneNumber: '67890',
+                username: 'jane',
+                stellarWallet: '{"publicKey":"G_PUB2"',
+            });
+
+            await processor.processCommand('12345', 'SEND 10 @jane');
+
+            expect(mockSendMessage).toHaveBeenCalledWith('12345', expect.stringContaining('send.no_recipient'));
+            expect(mockSendPayment).not.toHaveBeenCalled();
+        });
+
+        it('keeps the no-wallet message when the column is empty', async () => {
+            queueUserWith(undefined);
+
+            await processor.processCommand('12345', 'BALANCE');
+
+            expect(mockSendMessage).toHaveBeenCalledWith('12345', expect.stringContaining('balance.no_wallet'));
+            expect(mockSendMessage).not.toHaveBeenCalledWith('12345', expect.stringContaining('wallet.unreadable'));
+        });
+    });
+
     describe('payment requests (issue #65)', () => {
         it('REQUEST creates a tracked request and sends the recipient the requestId', async () => {
             mockCreatePaymentRequest.mockResolvedValue({ id: 'REQ-1', expiresAt: new Date(Date.now() + 86400000) });

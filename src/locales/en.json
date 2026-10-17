@@ -125,6 +125,7 @@
         "exceeded": "⚠️ You're sending too many requests. Please wait {{remainingSeconds}} seconds."
     },
     "wallet": {
+        "unreadable": "⚠️ We couldn't read your saved wallet. Please set up a new wallet or contact support.",
         "usdc_trustline_low_reserve": "You need at least 2 XLM in your wallet to enable USDC."
     },
     "payment_request": {

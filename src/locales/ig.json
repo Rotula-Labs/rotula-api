@@ -107,6 +107,7 @@
     "success": "✅ Agbanwela asụsụ ahụ nke ọma!"
   },
   "wallet": {
+    "unreadable": "⚠️ Anyị enweghị ike ịgụ obere akpa gị echekwara. Biko hazigharịa obere akpa ọhụrụ ma ọ bụ kpọtụrụ nkwado.",
     "usdc_trustline_low_reserve": "Ị chọrọ opekata mpe 2 XLM na obere akpa gị iji mee ka USDC rụọ ọrụ."
   }
 }

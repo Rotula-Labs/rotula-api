@@ -6,7 +6,16 @@ import { config } from '../config/env';
 
 jest.setTimeout(120000);
 
-describe('SorobanService Integration', () => {
+// This suite uploads and deploys a real contract to Stellar Testnet, so it
+// needs both network access and a compiled artifact at
+// contracts/savings_group.wasm. The repository ships an 8-byte placeholder,
+// which the Soroban host rejects with "contract missing metadata section".
+// Run it explicitly once a real build is present:
+//   RUN_SOROBAN_INTEGRATION=1 npm test
+const describeIntegration =
+    process.env.RUN_SOROBAN_INTEGRATION === '1' ? describe : describe.skip;
+
+describeIntegration('SorobanService Integration', () => {
     let sorobanService: SorobanService;
     let deployerKeypair: StellarSdk.Keypair;
 

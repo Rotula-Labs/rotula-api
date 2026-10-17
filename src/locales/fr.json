@@ -96,6 +96,7 @@
     "exceeded": "⚠️ Vous envoyez trop de demandes. Veuillez patienter {{remainingSeconds}} secondes."
   },
   "wallet": {
+    "unreadable": "⚠️ Nous n'avons pas pu lire votre portefeuille enregistré. Veuillez configurer un nouveau portefeuille ou contacter le support.",
     "usdc_trustline_low_reserve": "Vous avez besoin d'au moins 2 XLM dans votre portefeuille pour activer l'USDC."
   }
 }

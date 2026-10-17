@@ -9,6 +9,7 @@ import { GroupExitService, GroupExitError } from './group-exit.service';
 import { PaymentRequestService, PaymentRequestError } from './payment-request.service';
 import { scheduleRequestCompletion, scheduleRequestExpiry } from '../queue/payment-request.queue';
 import { decrypt } from '../utils/encryption.util';
+import { parseStellarWallet } from '../utils/wallet.util';
 import { t, isSupportedLanguage, loadLocale } from './locale.service';
 import { redisClient } from '../lib/redis';
 import { registerSecret, unregisterSecret, zeroAllInFlightSecrets } from '../utils/secret-registry';
@@ -179,10 +180,15 @@ export class MessageProcessor {
         const user = await this.userService.getOrCreateUser(from);
         const lang = user.language ?? 'en';
 
-        if (!user.stellarWallet) {
+        const wallet = parseStellarWallet(user.stellarWallet);
+        if (wallet.status === 'absent') {
             return await this.whatsappService.sendMessage(from, t('balance.no_wallet', lang));
         }
-        const { publicKey } = JSON.parse(user.stellarWallet);
+        if (wallet.status === 'unreadable') {
+            return await this.whatsappService.sendMessage(from, t('wallet.unreadable', lang));
+        }
+
+        const { publicKey } = wallet.wallet;
         const balances = await this.stellarService.checkBalance(publicKey);
 
         const assetFilter = args[0]?.toUpperCase();
@@ -203,8 +209,12 @@ export class MessageProcessor {
         const user = await this.userService.getOrCreateUser(from);
         const lang = user.language ?? 'en';
 
-        if (!user.stellarWallet) {
+        const wallet = parseStellarWallet(user.stellarWallet);
+        if (wallet.status === 'absent') {
             return await this.whatsappService.sendMessage(from, t('history.no_wallet', lang));
+        }
+        if (wallet.status === 'unreadable') {
+            return await this.whatsappService.sendMessage(from, t('wallet.unreadable', lang));
         }
 
         const isMore = args.length > 0 && args[0].toUpperCase() === 'MORE';
@@ -222,7 +232,7 @@ export class MessageProcessor {
 
         await this.whatsappService.sendMessage(from, t('history.fetching', lang, { phone: from }));
 
-        const { publicKey } = JSON.parse(user.stellarWallet);
+        const { publicKey } = wallet.wallet;
 
         try {
             const history = await this.stellarService.getTransactionHistory(publicKey, cursor, 10);
@@ -293,7 +303,11 @@ export class MessageProcessor {
     private async handleProfile(from: string) {
         const user = await this.userService.getOrCreateUser(from);
         const lang = user.language ?? 'en';
-        const publicKey = user.stellarWallet ? JSON.parse(user.stellarWallet).publicKey : 'None';
+        const wallet = parseStellarWallet(user.stellarWallet);
+        if (wallet.status === 'unreadable') {
+            return await this.whatsappService.sendMessage(from, t('wallet.unreadable', lang));
+        }
+        const publicKey = wallet.status === 'ok' ? wallet.wallet.publicKey : 'None';
         await this.whatsappService.sendMessage(
             from,
             t('profile.card', lang, {
@@ -319,25 +333,30 @@ export class MessageProcessor {
         }
         const target = args[1];
 
-        if (!user.stellarWallet) {
+        const senderWalletResult = parseStellarWallet(user.stellarWallet);
+        if (senderWalletResult.status === 'absent') {
             return await this.whatsappService.sendMessage(from, t('send.no_wallet', lang));
+        }
+        if (senderWalletResult.status === 'unreadable') {
+            return await this.whatsappService.sendMessage(from, t('wallet.unreadable', lang));
         }
 
         const recipient = await this.userService.resolveUser(target);
-        if (!recipient || !recipient.stellarWallet) {
+        const recipientWallet = parseStellarWallet(recipient?.stellarWallet);
+        if (!recipient || recipientWallet.status !== 'ok') {
             return await this.whatsappService.sendMessage(
                 from,
                 t('send.no_recipient', lang, { target }),
             );
         }
 
-        const senderWallet = JSON.parse(user.stellarWallet);
+        const senderWallet = senderWalletResult.wallet;
         let senderSecret: Buffer | null = null;
 
         try {
             senderSecret = decrypt(senderWallet.encryptedSecret, senderWallet.iv, senderWallet.authTag, senderWallet.keyVersion || user.encryptionKeyVersion);
             registerSecret(senderSecret);
-            const recipientPublicKey = JSON.parse(recipient.stellarWallet).publicKey;
+            const recipientPublicKey = recipientWallet.wallet.publicKey;
 
             await this.whatsappService.sendMessage(
                 from,
@@ -830,14 +849,18 @@ export class MessageProcessor {
             );
         }
 
-        if (!user.stellarWallet) {
+        const senderWalletResult = parseStellarWallet(user.stellarWallet);
+        if (senderWalletResult.status === 'absent') {
             return await this.whatsappService.sendMessage(from, t('send.no_wallet', lang));
+        }
+        if (senderWalletResult.status === 'unreadable') {
+            return await this.whatsappService.sendMessage(from, t('wallet.unreadable', lang));
         }
         if (!group.stellarContractId) {
             return await this.whatsappService.sendMessage(from, t('error.generic', lang, { message: 'Group has no Soroban contract configured.' }));
         }
 
-        const senderWallet = JSON.parse(user.stellarWallet);
+        const senderWallet = senderWalletResult.wallet;
         let senderSecret: Buffer | null = null;
 
         try {
