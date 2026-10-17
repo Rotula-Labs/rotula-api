@@ -1,6 +1,5 @@
 import { Queue, Job } from 'bullmq';
-import { config } from '../config/env';
-import crypto from 'crypto';
+import { getBullMQRedisOptions } from '../lib/redis';
 
 export interface MessageJobData {
     from: string;
@@ -9,9 +8,7 @@ export interface MessageJobData {
     locale?: string;
 }
 
-const connection = {
-    url: config.REDIS_URL,
-};
+const connection = getBullMQRedisOptions();
 
 const defaultJobOptions = {
     attempts: 3,
