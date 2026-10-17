@@ -93,19 +93,8 @@ export async function initI18n(): Promise<void> {
 }
 
 /**
- * Determines whether a given language should be rendered Right-to-Left (RTL).
- *
- * @param {string} lang - The language code to check.
- * @returns {boolean} True if the language is RTL, false otherwise.
- */
-export function isRTL(lang: string): boolean {
-    return lang === 'ar';
-}
-
-/**
  * Translates a given key into the target language using i18next.
- * Automatically falls back to English ('en') if the target language is unsupported,
- * and handles Right-to-Left formatting marks for RTL languages.
+ * Automatically falls back to English ('en') if the target language is unsupported.
  *
  * @param {string} key - The translation key path (e.g., 'send.success').
  * @param {string} lang - The target language code (e.g., 'en', 'fr').
@@ -121,14 +110,7 @@ export function t(
         ? lang
         : 'en';
 
-    let message = i18next.t(key, { lng: resolvedLang, ...params });
-    
-    // Arabic/Hausa RTL support
-    if (isRTL(resolvedLang)) {
-        message = '\u200F' + message;
-    }
-    
-    return message;
+    return i18next.t(key, { lng: resolvedLang, ...params });
 }
 
 /**
