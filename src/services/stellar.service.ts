@@ -31,15 +31,23 @@ export class InsufficientReserveError extends Error {
  */
 export class StellarService {
     private server: StellarSdk.Horizon.Server;
+    private networkPassphrase: string;
 
     /**
      * Initializes the Stellar horizon connection based on configured network mode.
      */
     constructor() {
-        if (config.STELLAR_NETWORK === 'PUBLIC') {
+        // config.STELLAR_NETWORK is validated at boot (see src/config/env.ts), so
+        // it is guaranteed to be either 'TESTNET' or 'PUBLIC' here. Derive both
+        // the Horizon host and the network passphrase from this single value so
+        // they can never disagree.
+        const network = config.STELLAR_NETWORK;
+        if (network === 'PUBLIC') {
             this.server = new StellarSdk.Horizon.Server('https://horizon.stellar.org');
+            this.networkPassphrase = StellarSdk.Networks.PUBLIC;
         } else {
             this.server = new StellarSdk.Horizon.Server('https://horizon-testnet.stellar.org');
+            this.networkPassphrase = StellarSdk.Networks.TESTNET;
         }
     }
 
@@ -372,12 +380,6 @@ export class StellarService {
         const result = await this.server.submitTransaction(transaction);
 
         return { hash: result.hash };
-    }
-
-    private networkPassphrase(): string {
-        return config.STELLAR_NETWORK === 'TESTNET'
-            ? StellarSdk.Networks.TESTNET
-            : StellarSdk.Networks.PUBLIC;
     }
 
     private isLowReserveError(error: any): boolean {
