@@ -22,6 +22,10 @@ model User {
   language                String           @default("en")
   createdAt               DateTime         @default(now())
   updatedAt               DateTime         @updatedAt
+  // Timestamp of the last verified inbound WhatsApp message. Used to decide
+  // whether a notification may be sent as free-form text (inside the 24-hour
+  // customer service window) or must use an approved template message.
+  lastInboundMessageAt    DateTime?
   groups                  GroupMember[]
   contributions           Contribution[]
   sentPaymentRequests     PaymentRequest[] @relation("PaymentRequestRequester")

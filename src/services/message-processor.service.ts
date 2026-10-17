@@ -1,4 +1,4 @@
-import { WhatsAppService } from './whatsapp.service';
+import { WhatsAppService, CUSTOMER_SERVICE_WINDOW_MS } from './whatsapp.service';
 import { StellarService } from './stellar.service';
 import { SorobanService } from './soroban.service';
 import * as StellarSdk from '@stellar/stellar-sdk';
@@ -23,6 +23,7 @@ export class MessageProcessor {
     private payoutService: PayoutService;
     private paymentRequestService: PaymentRequestService;
     private groupExitService: GroupExitService;
+    private lastInboundAt: Map<string, number> = new Map();
 
     constructor(
         whatsappService?: WhatsAppService,
@@ -73,6 +74,25 @@ export class MessageProcessor {
         return null;
     }
 
+    /**
+     * Records the time of the most recent inbound message from a user.
+     * Called from the verified webhook path so that outbound notifications
+     * can determine whether the 24-hour customer service window is open.
+     */
+    public recordInboundMessage(from: string, at: Date = new Date()): void {
+        this.lastInboundAt.set(from, at.getTime());
+    }
+
+    /**
+     * Returns true when the customer service window is still open for the
+     * given user, i.e. the last inbound message was within the window.
+     */
+    public isWithinCustomerServiceWindow(from: string, now: Date = new Date()): boolean {
+        const last = this.lastInboundAt.get(from);
+        if (last === undefined) return false;
+        return now.getTime() - last < CUSTOMER_SERVICE_WINDOW_MS;
+    }
+
     public async processCommand(from: string, text: string, locale?: string) {
         const tokens = text.trim().split(/\s+/);
         if (tokens.length === 0) return;
@@ -82,6 +102,10 @@ export class MessageProcessor {
             console.error('Failed early user creation', e);
             return null;
         });
+
+        // Any inbound message from the user opens (or refreshes) the
+        // customer service window for subsequent outbound notifications.
+        this.recordInboundMessage(from);
 
         if (user && user.language) {
             await loadLocale(user.language);
