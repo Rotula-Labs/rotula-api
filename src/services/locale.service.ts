@@ -8,6 +8,7 @@ const SUPPORTED_LANGUAGES = ['en', 'fr', 'yo', 'pcm', 'ha', 'ig'] as const;
 export type SupportedLanguage = typeof SUPPORTED_LANGUAGES[number];
 
 let initialised = false;
+let localeWatcher: chokidar.FSWatcher | null = null;
 
 /**
  * Initializes the i18next instance and its backend for dynamic locale loading.
@@ -75,9 +76,8 @@ export async function initI18n(): Promise<void> {
     }
 
     if (process.env.NODE_ENV !== 'production' && process.env.NODE_ENV !== 'test') {
-        const chokidar = await import('chokidar');
-        const watcher = chokidar.watch(localesDir, { ignoreInitial: true });
-        watcher.on('all', (event, filePath) => {
+        localeWatcher = chokidar.watch(localesDir, { ignoreInitial: true });
+        localeWatcher.on('all', (event, filePath) => {
             if (filePath.endsWith('.json')) {
                 const lang = path.basename(filePath, '.json');
                 if (SUPPORTED_LANGUAGES.includes(lang as any)) {
@@ -93,6 +93,20 @@ export async function initI18n(): Promise<void> {
 }
 
 /**
+ * Stops the development locale file watcher, if one is running.
+ * Safe to call multiple times.
+ *
+ * @returns {Promise<void>} A promise that resolves once the watcher is closed.
+ */
+export async function stopLocaleWatcher(): Promise<void> {
+    if (localeWatcher) {
+        const watcher = localeWatcher;
+        localeWatcher = null;
+        await watcher.close();
+    }
+}
+
+/**
  * Determines whether a given language should be rendered Right-to-Left (RTL).
  *
  * @param {string} lang - The language code to check.
@@ -101,6 +115,7 @@ export async function initI18n(): Promise<void> {
 export function isRTL(lang: string): boolean {
     return lang === 'ar';
 }
+
 
 /**
  * Translates a given key into the target language using i18next.
@@ -141,6 +156,7 @@ export function isSupportedLanguage(lang: string): lang is SupportedLanguage {
     return SUPPORTED_LANGUAGES.includes(lang as SupportedLanguage);
 }
 
+
 /**
  * Ensures the given language is loaded into i18next asynchronously.
  * Useful for lazy-loading locales on demand instead of preloading all at startup.
@@ -150,3 +166,4 @@ export async function loadLocale(lang: string): Promise<void> {
         await i18next.loadLanguages(lang);
     }
 }
+
