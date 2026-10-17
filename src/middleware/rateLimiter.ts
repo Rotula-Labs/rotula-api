@@ -1,6 +1,7 @@
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import RedisStore from 'rate-limit-redis';
-import { redisClient } from '../lib/redis';
+
+const { redisClient } = require('../lib/redis');
 
 export const customKeyGenerator = (req: any): string => {
     // Attempt to extract the WhatsApp sender's phone number
@@ -21,7 +22,7 @@ export const webhookRateLimiter = rateLimit({
     windowMs: 60 * 1000, // 1 minute
     limit: 100, // Limit each key to 100 requests per window
     standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
-    legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+    legacyHeaders: false, // Disable the `XRateLimit-*` headers
 
     // Redis store configuration
     store: new RedisStore({
@@ -34,6 +35,13 @@ export const webhookRateLimiter = rateLimit({
 
     // Custom handler for 429 response
     handler: (req, res, next, options) => {
+        // Redaction is applied centrally by the observability layer when this
+        // context is written to stdout, so no call site needs to mask values.
+        console.warn({
+            event: 'rate_limit_exceeded',
+            key: customKeyGenerator(req),
+            path: req.path,
+        });
         res.status(options.statusCode).json({
             error: 'Too many requests, please try again later.',
         });
