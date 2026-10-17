@@ -44,17 +44,38 @@ export class GroupService {
             }
         });
 
-        const jobId = await scheduleGroupCycle(group.id, frequency);
-        await enqueueContractDeployment(group.id);
-        
-        if (jobId) {
-            return await prisma.savingsGroup.update({
-                where: { id: group.id },
-                data: { bullMqJobId: jobId }
-            });
+        try {
+            const jobId = await scheduleGroupCycle(group.id, frequency);
+            await enqueueContractDeployment(group.id);
+
+            if (jobId) {
+                return await prisma.savingsGroup.update({
+                    where: { id: group.id },
+                    data: { bullMqJobId: jobId }
+                });
+            }
+
+            return group;
+        } catch (error) {
+            // Compensate: the group row was created but its cycle schedule or
+            // deployment job failed. Remove the cycle (best effort) and delete
+            // the row so no user-visible orphan is left behind.
+            try {
+                await removeGroupCycle(group.id, frequency);
+            } catch {
+                // ignore cleanup failure of the cycle
+            }
+            try {
+                await prisma.savingsGroup.delete({ where: { id: group.id } });
+            } catch {
+                // if deletion fails, mark the group as failed so it is reported
+                await prisma.savingsGroup.update({
+                    where: { id: group.id },
+                    data: { deploymentStatus: 'FAILED' }
+                });
+            }
+            throw error;
         }
-        
-        return group;
     }
 
     public async deleteGroup(groupId: string) {

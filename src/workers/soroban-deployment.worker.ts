@@ -4,6 +4,7 @@ import { PrismaClient } from '@prisma/client';
 import { sorobanService } from '../services/soroban.service';
 import { observabilityService } from '../services/observability.service';
 import { applyEncryptionMiddleware } from '../middleware/prisma-encryption.middleware';
+import { groupService } from '../services/group.service';
 
 const prisma = new PrismaClient();
 applyEncryptionMiddleware(prisma);
@@ -27,6 +28,13 @@ export function startSorobanDeploymentWorker(): void {
 
             if (!group) {
                 throw new Error(`Group not found for deployment: ${groupId}`);
+            }
+
+            // Reconciliation: if the group is still PENDING (e.g. the original
+            // enqueue failed after the row was created), ensure a deployment
+            // job exists so the group has a path to deployment.
+            if (group.deploymentStatus === 'PENDING') {
+                await groupService.ensureDeploymentEnqueued(groupId);
             }
 
             // Update deploymentStatus to DEPLOYING
@@ -81,6 +89,18 @@ export function startSorobanDeploymentWorker(): void {
                     groupId,
                     attemptsMade: job.attemptsMade,
                 });
+
+                // If this was the final attempt, surface the failure so the
+                // user-visible state matches the row (group is FAILED, not
+                // silently stuck). The group remains queryable for retry.
+                const maxAttempts = job.opts?.attempts ?? 1;
+                if (job.attemptsMade + 1 >= maxAttempts) {
+                    observabilityService.logError(
+                        'Soroban contract deployment exhausted retries; group left FAILED',
+                        error,
+                        { groupId, attemptsMade: job.attemptsMade }
+                    );
+                }
 
                 throw error;
             }
