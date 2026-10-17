@@ -83,6 +83,31 @@ describe('PaymentRequestService', () => {
             expect(result.expiresAt.getTime()).toBeGreaterThanOrEqual(expectedExpiry.getTime() - 1000);
         });
 
+        it('rejects a request where requester and responder are the same user', async () => {
+            await expect(service.createRequest('u1', 'u1', '50')).rejects.toMatchObject({ code: 'self_request' });
+            expect(prisma.paymentRequest.count).not.toHaveBeenCalled();
+            expect(prisma.paymentRequest.create).not.toHaveBeenCalled();
+        });
+
+        it('rejects a self-request before the pending-count check', async () => {
+            (prisma.paymentRequest.count as jest.Mock).mockResolvedValue(5);
+
+            await expect(service.createRequest('u1', 'u1', '50')).rejects.toMatchObject({ code: 'self_request' });
+            expect(prisma.paymentRequest.count).not.toHaveBeenCalled();
+            expect(prisma.paymentRequest.create).not.toHaveBeenCalled();
+        });
+
+        it('still creates a request between two different users', async () => {
+            (prisma.paymentRequest.count as jest.Mock).mockResolvedValue(0);
+            (prisma.paymentRequest.create as jest.Mock).mockImplementation(({ data }) =>
+                Promise.resolve({ id: 'new-req', ...data }));
+
+            const result = await service.createRequest('u1', 'u2', '50');
+
+            expect(result.requesterId).toBe('u1');
+            expect(result.responderId).toBe('u2');
+        });
+
         it('rejects when the requester already has 5 pending requests', async () => {
             (prisma.paymentRequest.count as jest.Mock).mockResolvedValue(5);
 
