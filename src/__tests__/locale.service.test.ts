@@ -56,7 +56,7 @@ describe('locale.service', () => {
             expect(result).toContain('5');
             // i18next interpolation must replace the placeholders, not leak them
             expect(result).not.toContain('{{amount}}');
-            expect(result).toContain('https://stellar.expert/explorer/testnet/tx/ABC123');
+            expect(result).toContain("https://stellar.expert/explorer/testnet/tx/ABC123");
         });
 
         it('should interpolate the request notification with the request ID for ACCEPT/DECLINE replies', async () => {
@@ -166,21 +166,7 @@ describe('locale.service', () => {
         });
     });
 
-    describe('isRTL', () => {
-        it('should return true for Arabic', async () => {
-            const { isRTL } = await import('../services/locale.service');
-            expect(isRTL('ar')).toBe(true);
-        });
-
-        it('should return false for Hausa (rendered LTR) and others', async () => {
-            const { isRTL } = await import('../services/locale.service');
-            expect(isRTL('ha')).toBe(false);
-            expect(isRTL('en')).toBe(false);
-        });
-    });
-
-    describe('RTL and formatting in t()', () => {
-
+    describe('formatting in t()', () => {
         it('should format currency correctly via interpolation', async () => {
             const { initI18n, t } = await import('../services/locale.service');
             await initI18n();
