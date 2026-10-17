@@ -872,7 +872,17 @@ export class MessageProcessor {
                 // Transaction submitted but not confirmed within 30 s.
                 // Record as PENDING so the reconciliation worker can detect
                 // whether it eventually landed on-chain.
-                await this.groupService.addContribution(user.id, group.id, amountStr, txHash, 'PENDING');
+                // Idempotent: a retried webhook or operator re-run must not
+                // append a second row for the same member and cycle. The
+                // service upserts on the (userId, groupId, cycle) unique key.
+                await this.groupService.addContribution(
+                    user.id,
+                    group.id,
+                    amountStr,
+                    txHash,
+                    'PENDING',
+                    (group as any).totalCycles,
+                );
                 await this.whatsappService.sendMessage(
                     from,
                     t('contribute.pending', lang, { hash: txHash }),
@@ -882,7 +892,18 @@ export class MessageProcessor {
             }
 
             // status === 'SUCCESS': confirmed on-chain — now safe to write DB record.
-            await this.groupService.addContribution(user.id, group.id, amountStr, txHash);
+            // Idempotent against the (userId, groupId, cycle) unique constraint:
+            // a duplicate confirmation updates the existing row instead of
+            // creating a second one, so the reconciliation total matches the
+            // number of contributions actually recorded.
+            await this.groupService.addContribution(
+                user.id,
+                group.id,
+                amountStr,
+                txHash,
+                'CONFIRMED',
+                (group as any).totalCycles,
+            );
             // The first contribution of a cycle locks the payout order — the creator
             // can no longer reorder once the rotation is underway.
             await this.payoutService.lockOrderForCycle(group.id).catch((e) => console.error('Failed to lock payout order', e));

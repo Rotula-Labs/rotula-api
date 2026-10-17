@@ -90,8 +90,13 @@ model Contribution {
   amount          Decimal
   transactionHash String?
   status          String   @default("PENDING") // PENDING, COMPLETED, FAILED
+  // Identifies the cycle this contribution belongs to. Combined with userId
+  // and groupId this makes a repeated contribution for the same member and
+  // cycle impossible at the DB level.
+  cycleNumber     Int      @default(0)
   createdAt       DateTime @default(now())
 
+  @@unique([userId, groupId, cycleNumber])
   @@index([userId])
   @@index([groupId])
 }

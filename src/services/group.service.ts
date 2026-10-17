@@ -1,6 +1,7 @@
 import { PrismaClient, Prisma } from '@prisma/client';
 import { scheduleGroupCycle, removeGroupCycle } from '../queue/contribution-scheduler.queue';
 import { enqueueContractDeployment } from '../queue/soroban-deployment.queue';
+import { getCurrentCycle } from '../utils/cycle.util';
 
 const prisma = new PrismaClient();
 
@@ -114,15 +115,44 @@ export class GroupService {
 
     public async addContribution(userId: string, groupId: string, amount: string | Prisma.Decimal, txHash: string, status: 'COMPLETED' | 'PENDING' | 'FAILED' = 'COMPLETED') {
         GroupService.validateAmount(amount);
-        return await prisma.contribution.create({
-            data: {
-                userId,
-                groupId,
-                amount,
-                transactionHash: txHash,
-                status,
+        const cycle = getCurrentCycle();
+
+        try {
+            return await prisma.contribution.create({
+                data: {
+                    userId,
+                    groupId,
+                    amount,
+                    transactionHash: txHash,
+                    status,
+                    cycle,
+                }
+            });
+        } catch (error) {
+            // A duplicate contribution for the same member and cycle is
+            // rejected by the unique constraint (userId, groupId, cycle).
+            // Treat it as an idempotent update rather than surfacing an error.
+            if (
+                error instanceof Prisma.PrismaClientKnownRequestError &&
+                error.code === 'P2002'
+            ) {
+                return await prisma.contribution.update({
+                    where: {
+                        userId_groupId_cycle: {
+                            userId,
+                            groupId,
+                            cycle,
+                        },
+                    },
+                    data: {
+                        amount,
+                        transactionHash: txHash,
+                        status,
+                    },
+                });
             }
-        });
+            throw error;
+        }
     }
 
     public async getContributionsByUser(userId: string) {
