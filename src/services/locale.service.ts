@@ -121,7 +121,18 @@ export function t(
         ? lang
         : 'en';
 
-    let message = i18next.t(key, { lng: resolvedLang, ...params });
+    const resolved = i18next.t(key, { lng: resolvedLang, ...params });
+
+    // i18next returns the key itself when no translation (or fallback) exists.
+    // Detect this and surface it loudly while keeping the user-facing message safe.
+    if (resolved === key) {
+        console.error(
+            `[i18n] Unresolved translation key '${key}' for locale '${resolvedLang}'`,
+        );
+        return 'An error occurred. Please try again later.';
+    }
+
+    let message = resolved;
     
     // Arabic/Hausa RTL support
     if (isRTL(resolvedLang)) {
