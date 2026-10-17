@@ -1,5 +1,5 @@
 import { PrismaClient, Prisma } from '@prisma/client';
-import { WhatsAppService } from './whatsapp.service';
+import { WhatsAppService, SendMessageResult } from './whatsapp.service';
 import { SorobanService } from './soroban.service';
 import { config } from '../config/env';
 import { enqueueCycleEnd } from '../queue/contribution-scheduler.queue';
@@ -169,10 +169,15 @@ export class PayoutService {
         for (const userId of status.missingUserIds) {
             const user: any = membersById.get(userId);
             if (!user?.phoneNumber) continue;
-            await this.whatsappService.sendMessage(
+            const result = await this.whatsappService.sendMessage(
                 user.phoneNumber,
                 `⚠️ Final warning: you haven't contributed to "${status.group.name}" for this cycle yet. Please contribute before the group creator finalizes the payout.`,
             );
+            if (!result.delivered) {
+                console.error(
+                    `Failed to send final warning to ${user.phoneNumber} (${result.failureClass}): ${result.error.message}`,
+                );
+            }
         }
     }
 
@@ -402,13 +407,18 @@ export class PayoutService {
 
         const creator = status.group.members.find((m: any) => m.role === 'CREATOR');
         if (creator?.user?.phoneNumber) {
-            await this.whatsappService.sendMessage(
+            const result = await this.whatsappService.sendMessage(
                 creator.user.phoneNumber,
                 `⚠️ Not everyone has contributed to "${status.group.name}" this cycle. Reply with:\n` +
                 `PAYOUT WAIT — extend the deadline by 24h\n` +
                 `PAYOUT PROCEED — pay out with the partial pool\n` +
                 `PAYOUT SKIP <phone or @username> — skip the defaulting member and reorder`,
             );
+            if (!result.delivered) {
+                console.error(
+                    `Failed to send cycle-end prompt to creator ${creator.user.phoneNumber} (${result.failureClass}): ${result.error.message}`,
+                );
+            }
         }
     }
 
@@ -416,10 +426,13 @@ export class PayoutService {
         const members = await prisma.groupMember.findMany({ where: { groupId }, include: { user: true } });
         for (const member of members) {
             if (!member.user?.phoneNumber) continue;
-            try {
-                await this.whatsappService.sendMessage(member.user.phoneNumber, message);
-            } catch (e) {
-                console.error(`Failed to notify ${member.user.phoneNumber}`, e);
+            const result: SendMessageResult = await this.whatsappService.sendMessage(member.user.phoneNumber, message);
+            if (!result.delivered) {
+                // Explicitly ignored: notification failure must not abort the
+                // payout/cycle transition, but is surfaced for observability.
+                console.error(
+                    `Failed to notify ${member.user.phoneNumber} (${result.failureClass}): ${result.error.message}`,
+                );
             }
         }
     }

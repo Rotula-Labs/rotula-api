@@ -1,4 +1,4 @@
-import { WhatsAppService } from './whatsapp.service';
+import { WhatsAppService, SendMessageResult } from './whatsapp.service';
 import { StellarService } from './stellar.service';
 import { SorobanService } from './soroban.service';
 import * as StellarSdk from '@stellar/stellar-sdk';
@@ -13,6 +13,33 @@ import { t, isSupportedLanguage, loadLocale } from './locale.service';
 import { redisClient } from '../lib/redis';
 import { registerSecret, unregisterSecret, zeroAllInFlightSecrets } from '../utils/secret-registry';
 import { logSecretAccess } from '../utils/audit-logger';
+
+/**
+ * Logs a failed delivery attempt. Delivery failures are never rethrown from
+ * notification paths — they are surfaced here so operators can see them, while
+ * the caller decides whether the failure is actionable.
+ */
+function logDeliveryFailure(context: string, result: SendMessageResult): void {
+    if (!result.delivered) {
+        console.error(`[whatsapp] delivery failed (${context}): ${result.failureClass}`, result.error);
+    }
+}
+
+/**
+ * Sends a message and logs any delivery failure. The result is returned so
+ * callers can react to a failed delivery instead of assuming success.
+ * Callers that do not need the result may ignore it; the failure is still logged.
+ */
+async function sendAndLog(
+    whatsappService: WhatsAppService,
+    to: string,
+    body: string,
+    context: string,
+): Promise<SendMessageResult> {
+    const result = await whatsappService.sendMessage(to, body);
+    logDeliveryFailure(context, result);
+    return result;
+}
 
 export class MessageProcessor {
     private whatsappService: WhatsAppService;
@@ -137,9 +164,10 @@ export class MessageProcessor {
         } catch (error: any) {
             console.error('Error processing command:', error);
             const user = await this.userService.getOrCreateUser(from, locale).catch(() => ({ language: 'en' }));
-            await this.whatsappService.sendMessage(
+            await sendAndLog(this.whatsappService,
                 from,
                 t('error.generic', user.language ?? 'en', { message: error.message }),
+                'processCommand.error',
             );
         }
     }
@@ -149,7 +177,7 @@ export class MessageProcessor {
         let lang = user.language ?? 'en';
         
         if (args.length === 0) {
-            return await this.whatsappService.sendMessage(from, t('language.current', lang, { current: lang }));
+            return await sendAndLog(this.whatsappService, from, t('language.current', lang, { current: lang }), 'language.current');
         }
 
         const requestedLang = args[0].toLowerCase();
@@ -167,12 +195,12 @@ export class MessageProcessor {
         const targetCode = langMap[requestedLang] || requestedLang;
         
         if (!isSupportedLanguage(targetCode)) {
-            return await this.whatsappService.sendMessage(from, t('language.unsupported', lang));
+            return await sendAndLog(this.whatsappService, from, t('language.unsupported', lang), 'language.unsupported');
         }
 
         await this.userService.updateUserLanguage(from, targetCode);
         await loadLocale(targetCode);
-        return await this.whatsappService.sendMessage(from, t('language.success', targetCode));
+        return await sendAndLog(this.whatsappService, from, t('language.success', targetCode), 'language.success');
     }
 
     private async handleBalance(from: string, args: string[] = []) {
@@ -180,7 +208,7 @@ export class MessageProcessor {
         const lang = user.language ?? 'en';
 
         if (!user.stellarWallet) {
-            return await this.whatsappService.sendMessage(from, t('balance.no_wallet', lang));
+            return await sendAndLog(this.whatsappService, from, t('balance.no_wallet', lang), 'balance.no_wallet');
         }
         const { publicKey } = JSON.parse(user.stellarWallet);
         const balances = await this.stellarService.checkBalance(publicKey);
@@ -189,14 +217,15 @@ export class MessageProcessor {
         const shown = assetFilter ? balances.filter((b) => b.assetCode === assetFilter) : balances;
 
         if (assetFilter && shown.length === 0) {
-            return await this.whatsappService.sendMessage(
+            return await sendAndLog(this.whatsappService,
                 from,
                 t('balance.asset_not_found', lang, { asset: assetFilter }),
+                'balance.asset_not_found',
             );
         }
 
         const balanceLines = shown.map((b) => `${b.assetCode}: ${b.balance}`).join('\n');
-        await this.whatsappService.sendMessage(from, t('balance.success', lang, { balances: balanceLines }));
+        await sendAndLog(this.whatsappService, from, t('balance.success', lang, { balances: balanceLines }), 'balance.success');
     }
 
     private async handleHistory(from: string, args: string[]) {
@@ -204,7 +233,7 @@ export class MessageProcessor {
         const lang = user.language ?? 'en';
 
         if (!user.stellarWallet) {
-            return await this.whatsappService.sendMessage(from, t('history.no_wallet', lang));
+            return await sendAndLog(this.whatsappService, from, t('history.no_wallet', lang), 'history.no_wallet');
         }
 
         const isMore = args.length > 0 && args[0].toUpperCase() === 'MORE';
@@ -216,11 +245,11 @@ export class MessageProcessor {
             if (savedCursor) {
                 cursor = savedCursor;
             } else {
-                return await this.whatsappService.sendMessage(from, t('history.no_more', lang));
+                return await sendAndLog(this.whatsappService, from, t('history.no_more', lang), 'history.no_more');
             }
         }
 
-        await this.whatsappService.sendMessage(from, t('history.fetching', lang, { phone: from }));
+        await sendAndLog(this.whatsappService, from, t('history.fetching', lang, { phone: from }), 'history.fetching');
 
         const { publicKey } = JSON.parse(user.stellarWallet);
 
@@ -230,9 +259,9 @@ export class MessageProcessor {
             if (history.transactions.length === 0) {
                 if (isMore) {
                     await redisClient.del(cursorCacheKey);
-                    return await this.whatsappService.sendMessage(from, t('history.no_more', lang));
+                    return await sendAndLog(this.whatsappService, from, t('history.no_more', lang), 'history.no_more');
                 } else {
-                    return await this.whatsappService.sendMessage(from, t('history.not_funded', lang));
+                    return await sendAndLog(this.whatsappService, from, t('history.not_funded', lang), 'history.not_funded');
                 }
             }
 
@@ -280,12 +309,13 @@ export class MessageProcessor {
                 await redisClient.del(cursorCacheKey);
             }
 
-            await this.whatsappService.sendMessage(from, message.trim());
+            await sendAndLog(this.whatsappService, from, message.trim(), 'history.list');
         } catch (error: any) {
             console.error('History error:', error);
-            await this.whatsappService.sendMessage(
+            await sendAndLog(this.whatsappService,
                 from,
                 error.message || t('history.unavailable', lang)
+                , 'history.error',
             );
         }
     }
@@ -294,7 +324,7 @@ export class MessageProcessor {
         const user = await this.userService.getOrCreateUser(from);
         const lang = user.language ?? 'en';
         const publicKey = user.stellarWallet ? JSON.parse(user.stellarWallet).publicKey : 'None';
-        await this.whatsappService.sendMessage(
+        await sendAndLog(this.whatsappService,
             from,
             t('profile.card', lang, {
                 phone: user.phoneNumber,
@@ -302,6 +332,7 @@ export class MessageProcessor {
                 wallet: publicKey,
                 joined: user.createdAt.toDateString(),
             }),
+            'profile.card',
         );
     }
 
@@ -310,24 +341,25 @@ export class MessageProcessor {
         const lang = user.language ?? 'en';
 
         if (args.length < 2) {
-            return await this.whatsappService.sendMessage(from, t('send.usage', lang));
+            return await sendAndLog(this.whatsappService, from, t('send.usage', lang), 'send.usage');
         }
         const amount = args[0];
         const amountError = this.validateAmount(amount);
         if (amountError) {
-            return await this.whatsappService.sendMessage(from, t(amountError, lang));
+            return await sendAndLog(this.whatsappService, from, t(amountError, lang), 'send.amount_error');
         }
         const target = args[1];
 
         if (!user.stellarWallet) {
-            return await this.whatsappService.sendMessage(from, t('send.no_wallet', lang));
+            return await sendAndLog(this.whatsappService, from, t('send.no_wallet', lang), 'send.no_wallet');
         }
 
         const recipient = await this.userService.resolveUser(target);
         if (!recipient || !recipient.stellarWallet) {
-            return await this.whatsappService.sendMessage(
+            return await sendAndLog(this.whatsappService,
                 from,
                 t('send.no_recipient', lang, { target }),
+                'send.no_recipient',
             );
         }
 
@@ -339,21 +371,24 @@ export class MessageProcessor {
             registerSecret(senderSecret);
             const recipientPublicKey = JSON.parse(recipient.stellarWallet).publicKey;
 
-            await this.whatsappService.sendMessage(
+            await sendAndLog(this.whatsappService,
                 from,
                 t('send.initiating', lang, { amount, target }),
+                'send.initiating',
             );
             await this.stellarService.sendPayment(senderSecret, recipientPublicKey, amount);
-            await this.whatsappService.sendMessage(
+            await sendAndLog(this.whatsappService,
                 from,
                 t('send.success', lang, { amount, target }),
+                'send.success',
             );
             await logSecretAccess(user.id, 'SEND', true);
         } catch (e: any) {
             console.error(e);
-            await this.whatsappService.sendMessage(
+            await sendAndLog(this.whatsappService,
                 from,
                 t('send.failed', lang, { message: e.message || 'Transaction error' }),
+                'send.failed',
             );
             await logSecretAccess(user.id, 'SEND', false, e.message);
         } finally {
@@ -369,25 +404,26 @@ export class MessageProcessor {
         const lang = sender.language ?? 'en';
 
         if (args.length < 2) {
-            return await this.whatsappService.sendMessage(from, t('request.usage', lang));
+            return await sendAndLog(this.whatsappService, from, t('request.usage', lang), 'request.usage');
         }
         const amount = args[0];
         const amountError = this.validateAmount(amount);
         if (amountError) {
-            return await this.whatsappService.sendMessage(from, t(amountError, lang));
+            return await sendAndLog(this.whatsappService, from, t(amountError, lang), 'request.amount_error');
         }
         const target = args[1];
 
         const recipient = await this.userService.resolveUser(target);
         if (!recipient) {
-            return await this.whatsappService.sendMessage(
+            return await sendAndLog(this.whatsappService,
                 from,
                 t('request.no_user', lang, { target }),
+                'request.no_user',
             );
         }
 
         if (recipient.id === sender.id) {
-            return await this.whatsappService.sendMessage(from, t('payment_request.error_self_request', lang));
+            return await sendAndLog(this.whatsappService, from, t('payment_request.error_self_request', lang), 'request.self');
         }
 
         let created: { id: string; expiresAt: Date };
@@ -395,7 +431,7 @@ export class MessageProcessor {
             created = await this.paymentRequestService.createRequest(sender.id, recipient.id, amount);
         } catch (error: any) {
             if (error instanceof PaymentRequestError && error.code === 'too_many_pending') {
-                return await this.whatsappService.sendMessage(from, t('payment_request.error_too_many_pending', lang));
+                return await sendAndLog(this.whatsappService, from, t('payment_request.error_too_many_pending', lang), 'request.too_many_pending');
             }
             throw error;
         }
@@ -404,7 +440,7 @@ export class MessageProcessor {
         await scheduleRequestExpiry(created.id, created.expiresAt);
 
         const senderHandle = sender.username ? '@' + sender.username : sender.phoneNumber;
-        await this.whatsappService.sendMessage(
+        await sendAndLog(this.whatsappService,
             recipient.phoneNumber,
             t('request.notify_recipient', lang, {
                 sender: senderHandle,
@@ -412,10 +448,12 @@ export class MessageProcessor {
                 senderPhone: sender.phoneNumber,
                 requestId: created.id,
             }),
+            'request.notify_recipient',
         );
-        await this.whatsappService.sendMessage(
+        await sendAndLog(this.whatsappService,
             from,
             t('request.confirmation', lang, { amount, target }),
+            'request.confirmation',
         );
     }
 
@@ -424,7 +462,7 @@ export class MessageProcessor {
         const lang = user.language ?? 'en';
 
         if (args.length < 1) {
-            return await this.whatsappService.sendMessage(from, t('payment_request.accept_usage', lang));
+            return await sendAndLog(this.whatsappService, from, t('payment_request.accept_usage', lang), 'accept.usage');
         }
 
         try {
@@ -432,7 +470,7 @@ export class MessageProcessor {
 
             await scheduleRequestCompletion(request.id);
 
-            return await this.whatsappService.sendMessage(
+            return await sendAndLog(this.whatsappService,
                 from,
                 t('payment_request.accepted', lang, {
                     amount: String(request.amount),
@@ -441,12 +479,14 @@ export class MessageProcessor {
                     reclaimHours: 1,
                     hash,
                 }),
+                'accept.success',
             );
         } catch (error: any) {
             if (error instanceof PaymentRequestError) {
-                return await this.whatsappService.sendMessage(
+                return await sendAndLog(this.whatsappService,
                     from,
                     t(`payment_request.error_${error.code}`, lang),
+                    'accept.error',
                 );
             }
             throw error;
@@ -458,7 +498,7 @@ export class MessageProcessor {
         const lang = user.language ?? 'en';
 
         if (args.length < 1) {
-            return await this.whatsappService.sendMessage(from, t('payment_request.decline_usage', lang));
+            return await sendAndLog(this.whatsappService, from, t('payment_request.decline_usage', lang), 'decline.usage');
         }
 
         try {
@@ -466,22 +506,24 @@ export class MessageProcessor {
 
             const requesterPhone = request.requester.phoneNumber;
             if (requesterPhone) {
-                await this.whatsappService.sendMessage(
+                await sendAndLog(this.whatsappService,
                     requesterPhone,
                     t('payment_request.declined', request.requester.language ?? 'en', {
                         respondent: request.responder.username ? `@${request.responder.username}` : request.responder.phoneNumber ?? '',
                         amount: String(request.amount),
                         asset: request.assetCode,
                     }),
+                    'decline.notify_requester',
                 );
             }
 
-            return await this.whatsappService.sendMessage(from, t('payment_request.decline_confirmed', lang));
+            return await sendAndLog(this.whatsappService, from, t('payment_request.decline_confirmed', lang), 'decline.confirmed');
         } catch (error: any) {
             if (error instanceof PaymentRequestError) {
-                return await this.whatsappService.sendMessage(
+                return await sendAndLog(this.whatsappService,
                     from,
                     t(`payment_request.error_${error.code}`, lang),
+                    'decline.error',
                 );
             }
             throw error;
@@ -493,26 +535,28 @@ export class MessageProcessor {
         const lang = user.language ?? 'en';
 
         if (args.length < 3) {
-            return await this.whatsappService.sendMessage(from, t('create_group.usage', lang));
+            return await sendAndLog(this.whatsappService, from, t('create_group.usage', lang), 'create_group.usage');
         }
         const frequency = args.pop() || 'MONTHLY';
         const amountStr = args.pop() || '0';
         const amountError = this.validateAmount(amountStr);
         if (amountError) {
-            return await this.whatsappService.sendMessage(from, t(amountError, lang));
+            return await sendAndLog(this.whatsappService, from, t(amountError, lang), 'create_group.amount_error');
         }
         const name = args.join(' ');
 
         try {
             const group = await this.groupService.createGroup(user.id, name, amountStr, frequency);
-            await this.whatsappService.sendMessage(
+            await sendAndLog(this.whatsappService,
                 from,
                 t('create_group.success', lang, { name, id: group.id }),
+                'create_group.success',
             );
         } catch (e: any) {
-            await this.whatsappService.sendMessage(
+            await sendAndLog(this.whatsappService,
                 from,
                 t('create_group.failed', lang, { message: e.message }),
+                'create_group.failed',
             );
         }
     }
@@ -522,17 +566,18 @@ export class MessageProcessor {
         const lang = user.language ?? 'en';
 
         if (args.length < 1) {
-            return await this.whatsappService.sendMessage(from, t('join_group.usage', lang));
+            return await sendAndLog(this.whatsappService, from, t('join_group.usage', lang), 'join_group.usage');
         }
         const groupId = args[0];
 
         try {
             await this.groupService.joinGroup(user.id, groupId);
-            await this.whatsappService.sendMessage(from, t('join_group.success', lang));
+            await sendAndLog(this.whatsappService, from, t('join_group.success', lang), 'join_group.success');
         } catch (e: any) {
-            await this.whatsappService.sendMessage(
+            await sendAndLog(this.whatsappService,
                 from,
                 t('join_group.failed', lang, { message: e.message }),
+                'join_group.failed',
             );
         }
     }
@@ -542,15 +587,16 @@ export class MessageProcessor {
         const lang = user.language ?? 'en';
 
         if (args.length < 1) {
-            return await this.whatsappService.sendMessage(from, t('invite_member.usage', lang));
+            return await sendAndLog(this.whatsappService, from, t('invite_member.usage', lang), 'invite_member.usage');
         }
         const target = args[0];
         const recipient = await this.userService.resolveUser(target);
 
         if (!recipient) {
-            return await this.whatsappService.sendMessage(
+            return await sendAndLog(this.whatsappService,
                 from,
                 t('invite_member.no_user', lang, { target }),
+                'invite_member.no_user',
             );
         }
 
@@ -558,24 +604,27 @@ export class MessageProcessor {
         const adminGroup = memberships.find((m: any) => m.role === 'CREATOR');
 
         if (!adminGroup) {
-            return await this.whatsappService.sendMessage(
+            return await sendAndLog(this.whatsappService,
                 from,
                 t('invite_member.not_creator', lang),
+                'invite_member.not_creator',
             );
         }
 
         const senderHandle = user.username ? '@' + user.username : user.phoneNumber;
-        await this.whatsappService.sendMessage(
+        await sendAndLog(this.whatsappService,
             recipient.phoneNumber,
             t('invite_member.notify_recipient', lang, {
                 sender: senderHandle,
                 groupName: adminGroup.group.name,
                 groupId: adminGroup.groupId,
             }),
+            'invite_member.notify_recipient',
         );
-        await this.whatsappService.sendMessage(
+        await sendAndLog(this.whatsappService,
             from,
             t('invite_member.success', lang, { target }),
+            'invite_member.success',
         );
     }
 
@@ -585,9 +634,10 @@ export class MessageProcessor {
         const memberships = await this.groupService.getGroupStatus(user.id);
 
         if (memberships.length === 0) {
-            return await this.whatsappService.sendMessage(
+            return await sendAndLog(this.whatsappService,
                 from,
                 t('group_status.no_groups', lang),
+                'group_status.no_groups',
             );
         }
 
@@ -602,7 +652,7 @@ export class MessageProcessor {
             });
         });
 
-        await this.whatsappService.sendMessage(from, statusText.trim());
+        await sendAndLog(this.whatsappService, from, statusText.trim(), 'group_status.list');
     }
 
     private async handleLeaveGroup(from: string, args: string[]) {
@@ -610,18 +660,18 @@ export class MessageProcessor {
         const lang = user.language ?? 'en';
 
         if (args.length < 1) {
-            return await this.whatsappService.sendMessage(from, t('leave_group.usage', lang));
+            return await sendAndLog(this.whatsappService, from, t('leave_group.usage', lang), 'leave_group.usage');
         }
         const groupId = args[0];
 
         try {
             await this.groupExitService.leaveGroup(user.id, groupId);
-            return await this.whatsappService.sendMessage(from, t('leave_group.success', lang));
+            return await sendAndLog(this.whatsappService, from, t('leave_group.success', lang), 'leave_group.success');
         } catch (e: any) {
             if (e instanceof GroupExitError) {
-                return await this.whatsappService.sendMessage(from, t(`group_exit.error_${e.code}`, lang));
+                return await sendAndLog(this.whatsappService, from, t(`group_exit.error_${e.code}`, lang), 'leave_group.error');
             }
-            return await this.whatsappService.sendMessage(from, t('leave_group.failed', lang, { message: e.message }));
+            return await sendAndLog(this.whatsappService, from, t('leave_group.failed', lang, { message: e.message }), 'leave_group.failed');
         }
     }
 
@@ -630,23 +680,23 @@ export class MessageProcessor {
         const lang = user.language ?? 'en';
 
         if (args.length < 2) {
-            return await this.whatsappService.sendMessage(from, t('kick_member.usage', lang));
+            return await sendAndLog(this.whatsappService, from, t('kick_member.usage', lang), 'kick_member.usage');
         }
         const [target, groupId] = args;
 
         const resolved = await this.userService.resolveUser(target);
         if (!resolved) {
-            return await this.whatsappService.sendMessage(from, t('group_exit.error_target_not_found', lang, { target }));
+            return await sendAndLog(this.whatsappService, from, t('group_exit.error_target_not_found', lang, { target }), 'kick_member.target_not_found');
         }
 
         try {
             await this.groupExitService.kickMember(user.id, groupId, resolved.id);
-            return await this.whatsappService.sendMessage(from, t('kick_member.success', lang, { target }));
+            return await sendAndLog(this.whatsappService, from, t('kick_member.success', lang, { target }), 'kick_member.success');
         } catch (e: any) {
             if (e instanceof GroupExitError) {
-                return await this.whatsappService.sendMessage(from, t(`group_exit.error_${e.code}`, lang, { target }));
+                return await sendAndLog(this.whatsappService, from, t(`group_exit.error_${e.code}`, lang, { target }), 'kick_member.error');
             }
-            return await this.whatsappService.sendMessage(from, t('kick_member.failed', lang, { message: e.message }));
+            return await sendAndLog(this.whatsappService, from, t('kick_member.failed', lang, { message: e.message }), 'kick_member.failed');
         }
     }
 
@@ -664,7 +714,7 @@ export class MessageProcessor {
                 return await this.handlePayoutSkip(from, args);
             default: {
                 const user = await this.userService.getOrCreateUser(from);
-                return await this.whatsappService.sendMessage(from, t('payout.usage', user.language ?? 'en'));
+                return await sendAndLog(this.whatsappService, from, t('payout.usage', user.language ?? 'en'), 'payout.usage');
             }
         }
     }
@@ -674,29 +724,29 @@ export class MessageProcessor {
         const lang = user.language ?? 'en';
 
         if (args.length === 0) {
-            return await this.whatsappService.sendMessage(from, t('payout.order_usage', lang));
+            return await sendAndLog(this.whatsappService, from, t('payout.order_usage', lang), 'payout.order_usage');
         }
 
         const memberships = await this.groupService.getGroupStatus(user.id);
         const adminGroup = memberships.find((m: any) => m.role === 'CREATOR');
         if (!adminGroup) {
-            return await this.whatsappService.sendMessage(from, t('payout.not_creator', lang));
+            return await sendAndLog(this.whatsappService, from, t('payout.not_creator', lang), 'payout.not_creator');
         }
 
         const order: string[] = [];
         for (const target of args) {
             const resolved = await this.userService.resolveUser(target);
             if (!resolved) {
-                return await this.whatsappService.sendMessage(from, t('payout.order_invalid_member', lang, { target }));
+                return await sendAndLog(this.whatsappService, from, t('payout.order_invalid_member', lang, { target }), 'payout.order_invalid_member');
             }
             order.push(resolved.id);
         }
 
         try {
             await this.payoutService.setPayoutOrder(adminGroup.groupId, user.id, order);
-            await this.whatsappService.sendMessage(from, t('payout.order_success', lang));
+            await sendAndLog(this.whatsappService, from, t('payout.order_success', lang), 'payout.order_success');
         } catch (e: any) {
-            await this.whatsappService.sendMessage(from, t('payout.order_failed', lang, { message: e.message }));
+            await sendAndLog(this.whatsappService, from, t('payout.order_failed', lang, { message: e.message }), 'payout.order_failed');
         }
     }
 
@@ -706,7 +756,7 @@ export class MessageProcessor {
 
         const memberships = await this.groupService.getGroupStatus(user.id);
         if (memberships.length === 0) {
-            return await this.whatsappService.sendMessage(from, t('payout.no_group', lang));
+            return await sendAndLog(this.whatsappService, from, t('payout.no_group', lang), 'payout.no_group');
         }
 
         const group = memberships[0].group;
@@ -721,12 +771,12 @@ export class MessageProcessor {
         const nextId = order[(group as any).currentPayoutIndex];
         const next = nextId ? (nameById.get(nextId) || nextId) : 'N/A';
 
-        await this.whatsappService.sendMessage(from, t('payout.status', lang, {
+        await sendAndLog(this.whatsappService, from, t('payout.status', lang, {
             name: group.name,
             cycle: (group as any).totalCycles + 1,
             next,
             order: orderText,
-        }));
+        }), 'payout.status');
     }
 
     private async handlePayoutWait(from: string) {
@@ -736,14 +786,14 @@ export class MessageProcessor {
         const memberships = await this.groupService.getGroupStatus(user.id);
         const adminGroup = memberships.find((m: any) => m.role === 'CREATOR');
         if (!adminGroup) {
-            return await this.whatsappService.sendMessage(from, t('payout.not_creator', lang));
+            return await sendAndLog(this.whatsappService, from, t('payout.not_creator', lang), 'payout.not_creator');
         }
 
         try {
             await this.payoutService.extendDeadline(adminGroup.groupId);
-            await this.whatsappService.sendMessage(from, t('payout.wait_success', lang));
+            await sendAndLog(this.whatsappService, from, t('payout.wait_success', lang), 'payout.wait_success');
         } catch (e: any) {
-            await this.whatsappService.sendMessage(from, t('payout.wait_failed', lang, { message: e.message }));
+            await sendAndLog(this.whatsappService, from, t('payout.wait_failed', lang, { message: e.message }), 'payout.wait_failed');
         }
     }
 
@@ -754,14 +804,14 @@ export class MessageProcessor {
         const memberships = await this.groupService.getGroupStatus(user.id);
         const adminGroup = memberships.find((m: any) => m.role === 'CREATOR');
         if (!adminGroup) {
-            return await this.whatsappService.sendMessage(from, t('payout.not_creator', lang));
+            return await sendAndLog(this.whatsappService, from, t('payout.not_creator', lang), 'payout.not_creator');
         }
 
         try {
             await this.payoutService.proceedWithPartialPool(adminGroup.groupId);
-            await this.whatsappService.sendMessage(from, t('payout.proceed_success', lang));
+            await sendAndLog(this.whatsappService, from, t('payout.proceed_success', lang), 'payout.proceed_success');
         } catch (e: any) {
-            await this.whatsappService.sendMessage(from, t('payout.proceed_failed', lang, { message: e.message }));
+            await sendAndLog(this.whatsappService, from, t('payout.proceed_failed', lang, { message: e.message }), 'payout.proceed_failed');
         }
     }
 
@@ -770,26 +820,26 @@ export class MessageProcessor {
         const lang = user.language ?? 'en';
 
         if (args.length < 1) {
-            return await this.whatsappService.sendMessage(from, t('payout.skip_usage', lang));
+            return await sendAndLog(this.whatsappService, from, t('payout.skip_usage', lang), 'payout.skip_usage');
         }
 
         const memberships = await this.groupService.getGroupStatus(user.id);
         const adminGroup = memberships.find((m: any) => m.role === 'CREATOR');
         if (!adminGroup) {
-            return await this.whatsappService.sendMessage(from, t('payout.not_creator', lang));
+            return await sendAndLog(this.whatsappService, from, t('payout.not_creator', lang), 'payout.not_creator');
         }
 
         const target = args[0];
         const resolved = await this.userService.resolveUser(target);
         if (!resolved) {
-            return await this.whatsappService.sendMessage(from, t('payout.skip_no_user', lang, { target }));
+            return await sendAndLog(this.whatsappService, from, t('payout.skip_no_user', lang, { target }), 'payout.skip_no_user');
         }
 
         try {
             await this.payoutService.skipDefaultingMember(adminGroup.groupId, user.id, resolved.id);
-            await this.whatsappService.sendMessage(from, t('payout.skip_success', lang, { target }));
+            await sendAndLog(this.whatsappService, from, t('payout.skip_success', lang, { target }), 'payout.skip_success');
         } catch (e: any) {
-            await this.whatsappService.sendMessage(from, t('payout.skip_failed', lang, { message: e.message }));
+            await sendAndLog(this.whatsappService, from, t('payout.skip_failed', lang, { message: e.message }), 'payout.skip_failed');
         }
     }
 
@@ -798,23 +848,23 @@ export class MessageProcessor {
         const lang = user.language ?? 'en';
 
         if (args.length < 1) {
-            return await this.whatsappService.sendMessage(from, t('contribute.usage', lang));
+            return await sendAndLog(this.whatsappService, from, t('contribute.usage', lang), 'contribute.usage');
         }
         const amountStr = args[0];
         const amountError = this.validateAmount(amountStr);
         if (amountError) {
-            return await this.whatsappService.sendMessage(from, t(amountError, lang));
+            return await sendAndLog(this.whatsappService, from, t(amountError, lang), 'contribute.amount_error');
         }
 
         const memberships = await this.groupService.getGroupStatus(user.id);
         if (memberships.length === 0) {
-            return await this.whatsappService.sendMessage(from, t('contribute.no_group', lang));
+            return await sendAndLog(this.whatsappService, from, t('contribute.no_group', lang), 'contribute.no_group');
         }
 
         const group = memberships[0].group;
 
         if ((group as any).isPaused) {
-            return await this.whatsappService.sendMessage(from, t('contribute.group_paused', lang, { groupName: group.name }));
+            return await sendAndLog(this.whatsappService, from, t('contribute.group_paused', lang, { groupName: group.name }), 'contribute.group_paused');
         }
 
         // Enforce exact match against the group's required contribution amount.
@@ -824,17 +874,18 @@ export class MessageProcessor {
         const required = parseFloat(String(group.contributionAmount));
         const contributed = parseFloat(amountStr);
         if (Math.abs(contributed - required) > Number.EPSILON) {
-            return await this.whatsappService.sendMessage(
+            return await sendAndLog(this.whatsappService,
                 from,
                 t('contribute.amount_mismatch', lang, { required: String(group.contributionAmount) }),
+                'contribute.amount_mismatch',
             );
         }
 
         if (!user.stellarWallet) {
-            return await this.whatsappService.sendMessage(from, t('send.no_wallet', lang));
+            return await sendAndLog(this.whatsappService, from, t('send.no_wallet', lang), 'contribute.no_wallet');
         }
         if (!group.stellarContractId) {
-            return await this.whatsappService.sendMessage(from, t('error.generic', lang, { message: 'Group has no Soroban contract configured.' }));
+            return await sendAndLog(this.whatsappService, from, t('error.generic', lang, { message: 'Group has no Soroban contract configured.' }), 'contribute.no_contract');
         }
 
         const senderWallet = JSON.parse(user.stellarWallet);
@@ -851,9 +902,10 @@ export class MessageProcessor {
             // 1 XLM = 10_000_000 stroops.
             const amountStroops = BigInt(Math.round(parseFloat(amountStr) * 10_000_000));
 
-            await this.whatsappService.sendMessage(
+            await sendAndLog(this.whatsappService,
                 from,
                 t('contribute.initiating', lang, { amount: amountStr, groupName: group.name }),
+                'contribute.initiating',
             );
 
             // ── Contract-first contribution flow ─────────────────────────────────
@@ -873,9 +925,10 @@ export class MessageProcessor {
                 // Record as PENDING so the reconciliation worker can detect
                 // whether it eventually landed on-chain.
                 await this.groupService.addContribution(user.id, group.id, amountStr, txHash, 'PENDING');
-                await this.whatsappService.sendMessage(
+                await sendAndLog(this.whatsappService,
                     from,
                     t('contribute.pending', lang, { hash: txHash }),
+                    'contribute.pending',
                 );
                 await logSecretAccess(user.id, 'CONTRIBUTE', false, 'Transaction pending confirmation');
                 return;
@@ -886,23 +939,26 @@ export class MessageProcessor {
             // The first contribution of a cycle locks the payout order — the creator
             // can no longer reorder once the rotation is underway.
             await this.payoutService.lockOrderForCycle(group.id).catch((e) => console.error('Failed to lock payout order', e));
-            await this.whatsappService.sendMessage(
+            await sendAndLog(this.whatsappService,
                 from,
                 t('contribute.success', lang, { amount: amountStr, groupName: group.name }),
+                'contribute.success',
             );
             await logSecretAccess(user.id, 'CONTRIBUTE', true);
         } catch (e: any) {
             // Distinguish a contract-level FAILED transaction from a network error.
             const isTxFailed = e?.message?.includes('Transaction failed on ledger');
             if (isTxFailed) {
-                await this.whatsappService.sendMessage(
+                await sendAndLog(this.whatsappService,
                     from,
                     t('contribute.failed_onchain', lang, { message: e.message }),
+                    'contribute.failed_onchain',
                 );
             } else {
-                await this.whatsappService.sendMessage(
+                await sendAndLog(this.whatsappService,
                     from,
                     t('contribute.failed', lang, { message: e.message }),
+                    'contribute.failed',
                 );
             }
             await logSecretAccess(user.id, 'CONTRIBUTE', false, e.message);
@@ -919,33 +975,34 @@ export class MessageProcessor {
         const lang = user.language ?? 'en';
 
         if (args.length < 1) {
-            return await this.whatsappService.sendMessage(from, t('withdraw.usage', lang));
+            return await sendAndLog(this.whatsappService, from, t('withdraw.usage', lang), 'withdraw.usage');
         }
         const amountStr = args[0];
         const amountError = this.validateAmount(amountStr);
         if (amountError) {
-            return await this.whatsappService.sendMessage(from, t(amountError, lang));
+            return await sendAndLog(this.whatsappService, from, t(amountError, lang), 'withdraw.amount_error');
         }
 
         const memberships = await this.groupService.getGroupStatus(user.id);
         if (memberships.length === 0) {
-            return await this.whatsappService.sendMessage(from, t('withdraw.no_group', lang));
+            return await sendAndLog(this.whatsappService, from, t('withdraw.no_group', lang), 'withdraw.no_group');
         }
 
         const group = memberships[0].group;
-        await this.whatsappService.sendMessage(
+        await sendAndLog(this.whatsappService,
             from,
             t('withdraw.success', lang, { amount: amountStr, groupName: group.name }),
+            'withdraw.success',
         );
     }
 
     private async handleHelp(from: string) {
         const user = await this.userService.getOrCreateUser(from);
-        await this.whatsappService.sendMessage(from, t('help.text', user.language ?? 'en'));
+        await sendAndLog(this.whatsappService, from, t('help.text', user.language ?? 'en'), 'help.text');
     }
 
     private async handleUnknown(from: string, _text: string) {
         const user = await this.userService.getOrCreateUser(from);
-        await this.whatsappService.sendMessage(from, t('unknown.command', user.language ?? 'en'));
+        await sendAndLog(this.whatsappService, from, t('unknown.command', user.language ?? 'en'), 'unknown.command');
     }
 }
