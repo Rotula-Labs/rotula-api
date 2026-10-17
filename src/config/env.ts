@@ -40,6 +40,8 @@ export const config = {
     SEP10_SERVER_SECRET: process.env.SEP10_SERVER_SECRET,
     SEP10_HOME_DOMAIN: process.env.SEP10_HOME_DOMAIN || 'localhost',
     JWT_SECRET: process.env.JWT_SECRET,
+    JWT_ISSUER: process.env.JWT_ISSUER || 'rotula',
+    JWT_AUDIENCE: process.env.JWT_AUDIENCE || 'rotula-api',
     SEP10_CHALLENGE_TTL_SECONDS: parseInt(process.env.SEP10_CHALLENGE_TTL_SECONDS || '300', 10),
 };
 

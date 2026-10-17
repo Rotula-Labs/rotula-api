@@ -4,6 +4,8 @@ import { config } from '../config/env';
 import crypto from 'crypto';
 import { redisClient } from '../lib/redis';
 
+export const DEFAULT_SCOPE = 'user';
+
 export class AuthService {
     private serverKeypair: StellarSdk.Keypair;
     private homeDomain: string;
@@ -46,7 +48,7 @@ export class AuthService {
     /**
      * Verifies the client's signed SEP-10 challenge transaction and returns a JWT if valid.
      */
-    public async verifyChallengeAndGenerateToken(transactionXdr: string): Promise<{ token: string, account: string }> {
+    public async verifyChallengeAndGenerateToken(transactionXdr: string, scope: string = DEFAULT_SCOPE): Promise<{ token: string, account: string }> {
         // Replay protection: hash the XDR to use as a unique ID
         const txHash = crypto.createHash('sha256').update(transactionXdr).digest('hex');
         const redisKey = `sep10:challenge:${txHash}`;
@@ -74,7 +76,7 @@ export class AuthService {
             threshold = account.thresholds.low_threshold || 1;
         } catch (error: any) {
             if (error.response && error.response.status === 404) {
-                signers = [{ key: transaction.clientAccountID, weight: 1, type: 'ed25519_public_key' }];
+                signers = [{ key: transaction.clientAccountID, weight: 1, type: 'edi25519_public_key' }];
                 threshold = 1;
             } else {
                 throw error;
@@ -95,9 +97,13 @@ export class AuthService {
         // If we reach here, the transaction is verified.
         // Generate a JWT for the authenticated client.
         const token = jwt.sign(
-            { sub: transaction.clientAccountID },
+            { sub: transaction.clientAccountID, scope },
             config.JWT_SECRET as string,
-            { expiresIn: '24h' }
+            {
+                expiresIn: '24h',
+                issuer: config.JWT_ISSUER,
+                audience: config.JWT_AUDIENCE,
+            }
         );
 
         return { token, account: transaction.clientAccountID };

@@ -61,6 +61,9 @@ describe('Auth Service - SEP-10', () => {
         // 5. Verify token manually
         const decoded = jwt.verify(token, config.JWT_SECRET as string) as any;
         expect(decoded.sub).toBe(clientKeypair.publicKey());
+        expect(decoded.iss).toBe(config.JWT_ISSUER);
+        expect(decoded.aud).toBe(config.JWT_AUDIENCE);
+        expect(decoded.scope).toBeDefined();
     });
 
     it('should reject a replayed challenge transaction', async () => {
@@ -108,5 +111,33 @@ describe('Auth Service - SEP-10', () => {
         await expect(authService.verifyChallengeAndGenerateToken(signedXdr)).rejects.toThrow();
 
         (global as any).mockZeroWeight = false;
+    });
+
+    it('should reject a token with a mismatched issuer', () => {
+        const clientKeypair = StellarSdk.Keypair.random();
+        const token = jwt.sign(
+            { sub: clientKeypair.publicKey(), scope: 'user' },
+            config.JWT_SECRET as string,
+            { issuer: 'https://evil.example.com', audience: config.JWT_AUDIENCE, expiresIn: '1h' }
+        );
+
+        expect(() => jwt.verify(token, config.JWT_SECRET as string, {
+            issuer: config.JWT_ISSUER,
+            audience: config.JWT_AUDIENCE,
+        })).toThrow();
+    });
+
+    it('should reject a token with a mismatched audience', () => {
+        const clientKeypair = StellarSdk.Keypair.random();
+        const token = jwt.sign(
+            { sub: clientKeypair.publicKey(), scope: 'user' },
+            config.JWT_SECRET as string,
+            { issuer: config.JWT_ISSUER, audience: 'some-other-service', expiresIn: '1h' }
+        );
+
+        expect(() => jwt.verify(token, config.JWT_SECRET as string, {
+            issuer: config.JWT_ISSUER,
+            audience: config.JWT_AUDIENCE,
+        })).toThrow();
     });
 });
