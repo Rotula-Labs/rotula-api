@@ -26,7 +26,7 @@ jest.mock('@prisma/client', () => {
         groupMember: {
             findMany: jest.fn(),
         },
-        $transaction: jest.fn((ops: any[]) => Promise.resolve(ops)),
+        $transaction: jest.fn(),
     };
     return { PrismaClient: jest.fn(() => mPrismaClient), Prisma: { Decimal } };
 });
@@ -82,7 +82,9 @@ describe('PayoutService', () => {
         prisma.payout.findFirst.mockReset();
         prisma.payout.create.mockReset();
         prisma.groupMember.findMany.mockReset().mockResolvedValue([]);
-        prisma.$transaction.mockReset().mockImplementation((ops: any[]) => Promise.resolve(ops));
+        prisma.$transaction.mockReset().mockImplementation((arg: any) =>
+            typeof arg === 'function' ? arg(prisma) : Promise.resolve(arg),
+        );
         (enqueueCycleEnd as jest.Mock).mockReset().mockResolvedValue(null);
 
         mockSendMessage = jest.fn().mockResolvedValue(true);
@@ -235,6 +237,62 @@ describe('PayoutService', () => {
             expect(result).toBe(existing);
             expect(mockSorobanPayout).not.toHaveBeenCalled();
             expect(prisma.payout.create).not.toHaveBeenCalled();
+        });
+    });
+
+    describe('executePayout — atomic payout row and index advance', () => {
+        it('commits the payout row and the rotation index advance in one transaction', async () => {
+            const group = {
+                id: 'g1',
+                name: 'Ajo Circle',
+                contributionAmount: 10,
+                currentPayoutIndex: 1,
+                totalCycles: 0,
+                payoutOrder: ['u1', 'u2', 'u3'],
+                members: [makeMember('u1', 'CREATOR'), makeMember('u2', 'MEMBER'), makeMember('u3', 'MEMBER')],
+            };
+            prisma.savingsGroup.findUnique.mockResolvedValueOnce(group);
+            prisma.payout.findFirst.mockResolvedValueOnce(null);
+            prisma.payout.create.mockResolvedValueOnce({ id: 'payout-1', recipientId: 'u2' });
+
+            await payoutService.executePayout('g1');
+
+            expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+            expect(prisma.payout.create).toHaveBeenCalledWith({
+                data: expect.objectContaining({ recipientId: 'u2', cycleNumber: 1 }),
+            });
+            expect(prisma.savingsGroup.update).toHaveBeenCalledWith({
+                where: { id: 'g1' },
+                data: { currentPayoutIndex: 2 },
+            });
+        });
+
+        it('leaves neither the payout row nor the index advance when the transaction fails between the two writes', async () => {
+            const group = {
+                id: 'g1',
+                name: 'Ajo Circle',
+                contributionAmount: 10,
+                currentPayoutIndex: 1,
+                totalCycles: 0,
+                payoutOrder: ['u1', 'u2', 'u3'],
+                members: [makeMember('u1', 'CREATOR'), makeMember('u2', 'MEMBER'), makeMember('u3', 'MEMBER')],
+            };
+            prisma.savingsGroup.findUnique.mockResolvedValueOnce(group);
+            prisma.payout.findFirst.mockResolvedValueOnce(null);
+            prisma.payout.create.mockResolvedValueOnce({ id: 'payout-1', recipientId: 'u2' });
+            prisma.savingsGroup.update.mockRejectedValueOnce(new Error('connection lost'));
+            prisma.$transaction.mockImplementationOnce(async (arg: any) => {
+                if (typeof arg === 'function') {
+                    return arg(prisma);
+                }
+                return Promise.all(arg);
+            });
+
+            await expect(payoutService.executePayout('g1')).rejects.toThrow('connection lost');
+
+            expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+            expect(prisma.payout.create).toHaveBeenCalledTimes(1);
+            expect(prisma.savingsGroup.update).toHaveBeenCalledTimes(1);
         });
     });
 

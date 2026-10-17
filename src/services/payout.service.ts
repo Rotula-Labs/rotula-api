@@ -338,27 +338,35 @@ export class PayoutService {
 
         const { hash } = await (this.sorobanService as any).payout(config.GROUP_TREASURY_SECRET, recipientPublicKey, amount);
 
-        const payout = await prisma.payout.create({
-            data: {
-                groupId,
-                recipientId: recipientUserId,
-                amount,
-                transactionHash: hash,
-                cycleNumber,
-                status: 'COMPLETED',
-            },
-        });
-
+        // The transfer is irreversible, so the payout row and the rotation index
+        // advance must commit together: a recorded position and a consumed
+        // position can never disagree, and a rotation cannot stall on a position
+        // whose payment was already made.
         const nextIndex = (group as any).currentPayoutIndex + 1;
-        await prisma.savingsGroup.update({
-            where: { id: groupId },
-            data: { currentPayoutIndex: nextIndex },
+        const { payout, cycleCompleted } = await prisma.$transaction(async (tx) => {
+            const createdPayout = await tx.payout.create({
+                data: {
+                    groupId,
+                    recipientId: recipientUserId,
+                    amount,
+                    transactionHash: hash,
+                    cycleNumber,
+                    status: 'COMPLETED',
+                },
+            });
+
+            await tx.savingsGroup.update({
+                where: { id: groupId },
+                data: { currentPayoutIndex: nextIndex },
+            });
+
+            return { payout: createdPayout, cycleCompleted: nextIndex >= order.length };
         });
 
         const recipientName = recipientMember.user.username ? `@${recipientMember.user.username}` : recipientMember.user.phoneNumber;
         await this.notifyAllMembers(groupId, `💸 ${recipientName} has received their payout of ${amount} USDC`);
 
-        if (nextIndex >= order.length) {
+        if (cycleCompleted) {
             await this.completeCycle(groupId);
         }
 
