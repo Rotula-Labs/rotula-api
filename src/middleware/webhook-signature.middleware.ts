@@ -124,6 +124,13 @@ export const webhookSignatureMiddleware = async (
                 return;
             }
         } catch (redisError) {
+            // Fail-open: the replay guard is a defence-in-depth measure, not the
+            // primary authentication mechanism (signature verification above).
+            // When Redis is unavailable we prefer delivering a valid, signed
+            // webhook over dropping it. This is the documented behaviour and it
+            // matches the command timeout configured in src/lib/redis.ts: the
+            // SET is bounded by commandTimeout, so this catch is reached in a
+            // bounded time rather than hanging the request.
             observabilityService.logError('Redis unavailable for replay checking, proceeding without replay protection', redisError, {
                 ip: getSourceIp(req),
             });

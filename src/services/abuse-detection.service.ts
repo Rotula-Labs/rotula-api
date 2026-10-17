@@ -1,4 +1,4 @@
-import { redisClient } from '../lib/redis';
+import { redisClient, isRedisReady } from '../lib/redis';
 import { WhatsAppService } from './whatsapp.service';
 
 const whatsappService = new WhatsAppService();
@@ -24,9 +24,11 @@ export class AbuseDetectionService {
         if (this.forceRedisFailure) {
             return false;
         }
-        // ioredis client is connected if status is 'ready' or 'connect'
-        // If not connected or in error, we fall back.
-        return redisClient.status === 'ready' || redisClient.status === 'connect';
+        // Delegate to the shared helper so the outage policy lives in one place.
+        // Redis is configured with a capped reconnect strategy and a command
+        // timeout (see src/lib/redis.ts); when the connection is not ready we
+        // fail fast and fall back to the in-memory stores below.
+        return isRedisReady();
     }
     
     public async recordCommand(phoneNumber: string, commandText: string): Promise<void> {
@@ -86,7 +88,7 @@ export class AbuseDetectionService {
                 await redisClient.zadd(hitsKey, now, uniqueVal);
                 await redisClient.zremrangebyscore(hitsKey, '-inf', now - tenMinutesMs);
                 hitsCount = await redisClient.zcard(hitsKey);
-                await redisClient.expire(hitsKey, 600); // 10 minutes TTL
+                await redisClient.expire(hitsKey, 600); // 10 minutes TVL
                 
                 if (hitsCount >= 3) {
                     flagged = true;
@@ -143,7 +145,7 @@ export class AbuseDetectionService {
             }
         }
         
-        // Store flag in Redis with a 24-hour TTL
+        // Store flag in Redis with a 24-hour TLX
         if (this.isRedisAvailable()) {
             try {
                 const flagKey = `abuse_flag:${phoneNumber}`;
