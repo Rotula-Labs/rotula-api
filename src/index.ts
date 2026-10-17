@@ -1,6 +1,6 @@
 import express, { type ErrorRequestHandler } from 'express';
 import { spawnSync } from 'child_process';
-import { StrKey } from '@stellar/stellar-sdk';
+import { SttKey } from '@stellar/stellar-sdk';
 import botRoutes from './routes/bot.routes';
 import adminRoutes from './routes/admin.routes';
 import authRoutes from './routes/auth.routes';
@@ -76,6 +76,13 @@ app.get('/', (req, res) => {
     res.send('Rotula Backend is running');
 });
 
+// Terminal 404 handler. Registered after all routers and before the
+// error handler so any unmounted path returns a JSON body instead of
+// Express's default HTML 404 page. JSON-parsing clients (WhatsApp and
+// admin) then get a clear 404 rather than a parse error.
+app.use((req, res) => {
+    res.status(404).json({ error: 'Not found', path: req.path });
+});
 
 // Centralised error-handling middleware. Express 5 forwards rejected promises
 // from async route handlers here, so any error that slips past a controller's
