@@ -38,6 +38,28 @@ export class ObservabilityService {
         // In a real scenario, this would POST to Sentry, Datadog, or an incident management webhook.
         // We decouple the alerting mechanism here so it's fully unit-testable.
     }
+
+    /**
+     * Tracks failed authentication attempts per source address and raises a
+     * critical alert once the configured threshold is crossed.
+     */
+    public recordFailedAuthentication(source: string, requestId?: string, threshold: number = 5): void {
+        const context = { source, requestId };
+        this.logWarning('Admin authentication failed', context);
+
+        const count = (this.failedAuthCounts.get(source) ?? 0) + 1;
+        this.failedAuthCounts.set(source, count);
+
+        if (count >= threshold) {
+            void this.alertCriticalFailure(
+                'Repeated admin authentication failures',
+                new Error(`Repeated admin authentication failures from ${source}`),
+                { source, requestId, count, threshold }
+            );
+        }
+    }
+
+    private readonly failedAuthCounts: Map<string, number> = new Map();
 }
 
 export const observabilityService = new ObservabilityService();
