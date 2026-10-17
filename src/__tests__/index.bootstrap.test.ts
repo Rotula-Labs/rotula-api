@@ -1,3 +1,13 @@
+/*
+ * Bootstrap tests for the server entry point.
+"
+/**
+ * The bootstrap module imports the shared config at module load time. We
+ * mock it here so the entry point can be exercised without requiring a real
+ * environment. The config validation itself is covered by the dedicated
+ * config tests.
+ */
+
 jest.mock('express', () => {
     const app = {
         use: jest.fn(),
@@ -23,6 +33,7 @@ jest.mock('../config/env', () => ({
         ENCRYPTION_KEY: 'test-encryption-key',
         WHATSAPP_APP_SECRET: 'test-app-secret',
         USDC_ISSUER_PUBLIC_KEY: '',
+        SEP10_CHALLENGE_TTL_SECONDS: 300,
     },
 }));
 
