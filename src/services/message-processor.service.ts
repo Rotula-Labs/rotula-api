@@ -14,6 +14,8 @@ import { redisClient } from '../lib/redis';
 import { registerSecret, unregisterSecret, zeroAllInFlightSecrets } from '../utils/secret-registry';
 import { logSecretAccess } from '../utils/audit-logger';
 
+type User = Awaited<ReturnType<UserService['getOrCreateUser']>>;
+
 export class MessageProcessor {
     private whatsappService: WhatsAppService;
     private stellarService: StellarService;
@@ -73,6 +75,19 @@ export class MessageProcessor {
         return null;
     }
 
+    /**
+     * Resolves the user for a command. This is the single place that owns
+     * user creation for the command path: `processCommand` fetches once and
+     * passes the result down to handlers. Handlers fall back to this method
+     * only when invoked standalone (e.g. from tests) without a user.
+     */
+    private async resolveUser(from: string, locale?: string, user?: User | null): Promise<User> {
+        if (user) {
+            return user;
+        }
+        return await this.userService.getOrCreateUser(from, locale);
+    }
+
     public async processCommand(from: string, text: string, locale?: string) {
         const tokens = text.trim().split(/\s+/);
         if (tokens.length === 0) return;
@@ -92,47 +107,47 @@ export class MessageProcessor {
 
         try {
             if (cmd1 === 'CREATE' && cmd2 === 'GROUP') {
-                return await this.handleCreateGroup(from, tokens.slice(2));
+                return await this.handleCreateGroup(from, tokens.slice(2), user);
             } else if (cmd1 === 'JOIN' && cmd2 === 'GROUP') {
-                return await this.handleJoinGroup(from, tokens.slice(2));
+                return await this.handleJoinGroup(from, tokens.slice(2), user);
             } else if (cmd1 === 'INVITE' && cmd2 === 'MEMBER') {
-                return await this.handleInviteMember(from, tokens.slice(2));
+                return await this.handleInviteMember(from, tokens.slice(2), user);
             } else if (cmd1 === 'GROUP' && cmd2 === 'STATUS') {
-                return await this.handleGroupStatus(from, tokens.slice(2));
+                return await this.handleGroupStatus(from, tokens.slice(2), user);
             } else if (cmd1 === 'LEAVE' && cmd2 === 'GROUP') {
-                return await this.handleLeaveGroup(from, tokens.slice(2));
+                return await this.handleLeaveGroup(from, tokens.slice(2), user);
             } else if (cmd1 === 'KICK') {
-                return await this.handleKickMember(from, tokens.slice(1));
+                return await this.handleKickMember(from, tokens.slice(1), user);
             } else if (cmd1 === 'PAYOUT') {
-                return await this.handlePayoutCommand(from, cmd2, tokens.slice(2));
+                return await this.handlePayoutCommand(from, cmd2, tokens.slice(2), user);
             }
 
             switch (cmd1) {
                 case 'LANGUAGE':
-                    return await this.handleLanguage(from, tokens.slice(1));
+                    return await this.handleLanguage(from, tokens.slice(1), user);
                 case 'BALANCE':
-                    return await this.handleBalance(from, tokens.slice(1));
+                    return await this.handleBalance(from, tokens.slice(1), user);
                 case 'HISTORY':
-                    return await this.handleHistory(from, tokens.slice(1));
+                    return await this.handleHistory(from, tokens.slice(1), user);
                 case 'PROFILE':
-                    return await this.handleProfile(from);
+                    return await this.handleProfile(from, user);
                 case 'SEND':
-                    return await this.handleSend(from, tokens.slice(1));
+                    return await this.handleSend(from, tokens.slice(1), user);
                 case 'REQUEST':
-                    return await this.handleRequest(from, tokens.slice(1));
+                    return await this.handleRequest(from, tokens.slice(1), user);
                 case 'ACCEPT':
-                    return await this.handleAcceptRequest(from, tokens.slice(1));
+                    return await this.handleAcceptRequest(from, tokens.slice(1), user);
                 case 'DECLINE':
-                    return await this.handleDeclineRequest(from, tokens.slice(1));
+                    return await this.handleDeclineRequest(from, tokens.slice(1), user);
                 case 'CONTRIBUTE':
-                    return await this.handleContribute(from, tokens.slice(1));
+                    return await this.handleContribute(from, tokens.slice(1), user);
                 case 'WITHDRAW':
-                    return await this.handleWithdraw(from, tokens.slice(1));
+                    return await this.handleWithdraw(from, tokens.slice(1), user);
                 case 'HELP':
                 case 'SUPPORT':
-                    return await this.handleHelp(from);
+                    return await this.handleHelp(from, user);
                 default:
-                    return await this.handleUnknown(from, text);
+                    return await this.handleUnknown(from, text, user);
             }
         } catch (error: any) {
             console.error('Error processing command:', error);
@@ -144,8 +159,8 @@ export class MessageProcessor {
         }
     }
 
-    private async handleLanguage(from: string, args: string[]) {
-        const user = await this.userService.getOrCreateUser(from);
+    private async handleLanguage(from: string, args: string[], user?: User | null) {
+        user = await this.resolveUser(from, undefined, user);
         let lang = user.language ?? 'en';
         
         if (args.length === 0) {
@@ -175,8 +190,8 @@ export class MessageProcessor {
         return await this.whatsappService.sendMessage(from, t('language.success', targetCode));
     }
 
-    private async handleBalance(from: string, args: string[] = []) {
-        const user = await this.userService.getOrCreateUser(from);
+    private async handleBalance(from: string, args: string[] = [], user?: User | null) {
+        user = await this.resolveUser(from, undefined, user);
         const lang = user.language ?? 'en';
 
         if (!user.stellarWallet) {
@@ -199,8 +214,8 @@ export class MessageProcessor {
         await this.whatsappService.sendMessage(from, t('balance.success', lang, { balances: balanceLines }));
     }
 
-    private async handleHistory(from: string, args: string[]) {
-        const user = await this.userService.getOrCreateUser(from);
+    private async handleHistory(from: string, args: string[], user?: User | null) {
+        user = await this.resolveUser(from, undefined, user);
         const lang = user.language ?? 'en';
 
         if (!user.stellarWallet) {
@@ -290,8 +305,8 @@ export class MessageProcessor {
         }
     }
 
-    private async handleProfile(from: string) {
-        const user = await this.userService.getOrCreateUser(from);
+    private async handleProfile(from: string, user?: User | null) {
+        user = await this.resolveUser(from, undefined, user);
         const lang = user.language ?? 'en';
         const publicKey = user.stellarWallet ? JSON.parse(user.stellarWallet).publicKey : 'None';
         await this.whatsappService.sendMessage(
@@ -305,8 +320,8 @@ export class MessageProcessor {
         );
     }
 
-    private async handleSend(from: string, args: string[]) {
-        const user = await this.userService.getOrCreateUser(from);
+    private async handleSend(from: string, args: string[], user?: User | null) {
+        user = await this.resolveUser(from, undefined, user);
         const lang = user.language ?? 'en';
 
         if (args.length < 2) {
@@ -364,8 +379,8 @@ export class MessageProcessor {
         }
     }
 
-    private async handleRequest(from: string, args: string[]) {
-        const sender = await this.userService.getOrCreateUser(from);
+    private async handleRequest(from: string, args: string[], user?: User | null) {
+        const sender = await this.resolveUser(from, undefined, user);
         const lang = sender.language ?? 'en';
 
         if (args.length < 2) {
@@ -419,8 +434,8 @@ export class MessageProcessor {
         );
     }
 
-    private async handleAcceptRequest(from: string, args: string[]) {
-        const user = await this.userService.getOrCreateUser(from);
+    private async handleAcceptRequest(from: string, args: string[], user?: User | null) {
+        user = await this.resolveUser(from, undefined, user);
         const lang = user.language ?? 'en';
 
         if (args.length < 1) {
@@ -453,8 +468,8 @@ export class MessageProcessor {
         }
     }
 
-    private async handleDeclineRequest(from: string, args: string[]) {
-        const user = await this.userService.getOrCreateUser(from);
+    private async handleDeclineRequest(from: string, args: string[], user?: User | null) {
+        user = await this.resolveUser(from, undefined, user);
         const lang = user.language ?? 'en';
 
         if (args.length < 1) {
@@ -488,8 +503,8 @@ export class MessageProcessor {
         }
     }
 
-    private async handleCreateGroup(from: string, args: string[]) {
-        const user = await this.userService.getOrCreateUser(from);
+    private async handleCreateGroup(from: string, args: string[], user?: User | null) {
+        user = await this.resolveUser(from, undefined, user);
         const lang = user.language ?? 'en';
 
         if (args.length < 3) {
@@ -517,8 +532,8 @@ export class MessageProcessor {
         }
     }
 
-    private async handleJoinGroup(from: string, args: string[]) {
-        const user = await this.userService.getOrCreateUser(from);
+    private async handleJoinGroup(from: string, args: string[], user?: User | null) {
+        user = await this.resolveUser(from, undefined, user);
         const lang = user.language ?? 'en';
 
         if (args.length < 1) {
@@ -537,8 +552,8 @@ export class MessageProcessor {
         }
     }
 
-    private async handleInviteMember(from: string, args: string[]) {
-        const user = await this.userService.getOrCreateUser(from);
+    private async handleInviteMember(from: string, args: string[], user?: User | null) {
+        user = await this.resolveUser(from, undefined, user);
         const lang = user.language ?? 'en';
 
         if (args.length < 1) {
@@ -579,8 +594,8 @@ export class MessageProcessor {
         );
     }
 
-    private async handleGroupStatus(from: string, _args: string[]) {
-        const user = await this.userService.getOrCreateUser(from);
+    private async handleGroupStatus(from: string, _args: string[], user?: User | null) {
+        user = await this.resolveUser(from, undefined, user);
         const lang = user.language ?? 'en';
         const memberships = await this.groupService.getGroupStatus(user.id);
 
@@ -605,8 +620,8 @@ export class MessageProcessor {
         await this.whatsappService.sendMessage(from, statusText.trim());
     }
 
-    private async handleLeaveGroup(from: string, args: string[]) {
-        const user = await this.userService.getOrCreateUser(from);
+    private async handleLeaveGroup(from: string, args: string[], user?: User | null) {
+        user = await this.resolveUser(from, undefined, user);
         const lang = user.language ?? 'en';
 
         if (args.length < 1) {
@@ -625,8 +640,8 @@ export class MessageProcessor {
         }
     }
 
-    private async handleKickMember(from: string, args: string[]) {
-        const user = await this.userService.getOrCreateUser(from);
+    private async handleKickMember(from: string, args: string[], user?: User | null) {
+        user = await this.resolveUser(from, undefined, user);
         const lang = user.language ?? 'en';
 
         if (args.length < 2) {
@@ -650,27 +665,27 @@ export class MessageProcessor {
         }
     }
 
-    private async handlePayoutCommand(from: string, sub: string, args: string[]) {
+    private async handlePayoutCommand(from: string, sub: string, args: string[], user?: User | null) {
         switch (sub) {
             case 'ORDER':
-                return await this.handleSetPayoutOrder(from, args);
+                return await this.handleSetPayoutOrder(from, args, user);
             case 'STATUS':
-                return await this.handlePayoutStatus(from);
+                return await this.handlePayoutStatus(from, user);
             case 'WAIT':
-                return await this.handlePayoutWait(from);
+                return await this.handlePayoutWait(from, user);
             case 'PROCEED':
-                return await this.handlePayoutProceed(from);
+                return await this.handlePayoutProceed(from, user);
             case 'SKIP':
-                return await this.handlePayoutSkip(from, args);
+                return await this.handlePayoutSkip(from, args, user);
             default: {
-                const user = await this.userService.getOrCreateUser(from);
+                user = await this.resolveUser(from, undefined, user);
                 return await this.whatsappService.sendMessage(from, t('payout.usage', user.language ?? 'en'));
             }
         }
     }
 
-    private async handleSetPayoutOrder(from: string, args: string[]) {
-        const user = await this.userService.getOrCreateUser(from);
+    private async handleSetPayoutOrder(from: string, args: string[], user?: User | null) {
+        user = await this.resolveUser(from, undefined, user);
         const lang = user.language ?? 'en';
 
         if (args.length === 0) {
@@ -700,8 +715,8 @@ export class MessageProcessor {
         }
     }
 
-    private async handlePayoutStatus(from: string) {
-        const user = await this.userService.getOrCreateUser(from);
+    private async handlePayoutStatus(from: string, user?: User | null) {
+        user = await this.resolveUser(from, undefined, user);
         const lang = user.language ?? 'en';
 
         const memberships = await this.groupService.getGroupStatus(user.id);
@@ -729,8 +744,8 @@ export class MessageProcessor {
         }));
     }
 
-    private async handlePayoutWait(from: string) {
-        const user = await this.userService.getOrCreateUser(from);
+    private async handlePayoutWait(from: string, user?: User | null) {
+        user = await this.resolveUser(from, undefined, user);
         const lang = user.language ?? 'en';
 
         const memberships = await this.groupService.getGroupStatus(user.id);
@@ -747,8 +762,8 @@ export class MessageProcessor {
         }
     }
 
-    private async handlePayoutProceed(from: string) {
-        const user = await this.userService.getOrCreateUser(from);
+    private async handlePayoutProceed(from: string, user?: User | null) {
+        user = await this.resolveUser(from, undefined, user);
         const lang = user.language ?? 'en';
 
         const memberships = await this.groupService.getGroupStatus(user.id);
@@ -765,8 +780,8 @@ export class MessageProcessor {
         }
     }
 
-    private async handlePayoutSkip(from: string, args: string[]) {
-        const user = await this.userService.getOrCreateUser(from);
+    private async handlePayoutSkip(from: string, args: string[], user?: User | null) {
+        user = await this.resolveUser(from, undefined, user);
         const lang = user.language ?? 'en';
 
         if (args.length < 1) {
@@ -793,8 +808,8 @@ export class MessageProcessor {
         }
     }
 
-    private async handleContribute(from: string, args: string[]) {
-        const user = await this.userService.getOrCreateUser(from);
+    private async handleContribute(from: string, args: string[], user?: User | null) {
+        user = await this.resolveUser(from, undefined, user);
         const lang = user.language ?? 'en';
 
         if (args.length < 1) {
@@ -914,8 +929,8 @@ export class MessageProcessor {
         }
     }
 
-    private async handleWithdraw(from: string, args: string[]) {
-        const user = await this.userService.getOrCreateUser(from);
+    private async handleWithdraw(from: string, args: string[], user?: User | null) {
+        user = await this.resolveUser(from, undefined, user);
         const lang = user.language ?? 'en';
 
         if (args.length < 1) {
@@ -939,13 +954,13 @@ export class MessageProcessor {
         );
     }
 
-    private async handleHelp(from: string) {
-        const user = await this.userService.getOrCreateUser(from);
+    private async handleHelp(from: string, user?: User | null) {
+        user = await this.resolveUser(from, undefined, user);
         await this.whatsappService.sendMessage(from, t('help.text', user.language ?? 'en'));
     }
 
-    private async handleUnknown(from: string, _text: string) {
-        const user = await this.userService.getOrCreateUser(from);
+    private async handleUnknown(from: string, _text: string, user?: User | null) {
+        user = await this.resolveUser(from, undefined, user);
         await this.whatsappService.sendMessage(from, t('unknown.command', user.language ?? 'en'));
     }
 }
