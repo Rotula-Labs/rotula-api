@@ -1,4 +1,5 @@
 import { prisma } from '../lib/prisma';
+import { createHash } from 'crypto';
 import { StellarService, InsufficientReserveError } from './stellar.service';
 import { WhatsAppService } from './whatsapp.service';
 import { decrypt } from '../utils/encryption.util';
@@ -12,6 +13,23 @@ const stellarService = new StellarService();
 const whatsappService = new WhatsAppService();
 
 import { isSupportedLanguage } from './locale.service';
+
+/**
+ * Canonicalise a phone number to a single identity form.
+ * Strips separators (spaces, dashes, dots, parens) and a leading
+ * international (`+` or `00`) or national (`0`) prefix so that
+ * equivalent spellings of the same number compare equal.
+ */
+export function canonicalizePhoneNumber(raw: string): string {
+    if (!raw) return '';
+    let digits = raw.replace(/[^\d]/g, '');
+    if (digits.startsWith('00')) {
+        digits = digits.slice(2);
+    } else if (digits.startsWith('0')) {
+        digits = digits.slice(1);
+    }
+    return digits;
+}
 
 export class UserService {
     public async getOrCreateUser(phoneNumber: string, locale?: string): Promise<any> {
@@ -77,7 +95,12 @@ export class UserService {
         if (target.startsWith('@')) {
             return await prisma.user.findUnique({ where: { username: target.substring(1) } });
         } else {
-            return await prisma.user.findFirst({ where: { phoneNumber: target } });
+            const canonical = canonicalizePhoneNumber(target);
+            if (!canonical) return null;
+            const candidates = await prisma.user.findMany({
+                where: { phoneNumber: { not: null } }
+            });
+            return candidates.find((u: any) => canonicalizePhoneNumber(u.phoneNumber) === canonical) ?? null;
         }
     }
 
@@ -116,3 +139,4 @@ export class UserService {
         return user;
     }
 }
+
