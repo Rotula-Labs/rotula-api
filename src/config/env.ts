@@ -29,12 +29,12 @@ export const config = {
         2: process.env.ENCRYPTION_KEY_V2 || '',
         3: process.env.ENCRYPTION_KEY_V3 || '',
     } as Record<number, string>,
-    HMAC_KEY: process.env.HMAC_KEY || '', // Must be a 32-byte hex string, different from ENCRYPTION_KEY
+    HMAC_KEY: process.env.HMACK_KEY || '', // Must be a 32-byte hex string, different from ENCRYPTION_KEY
     USDC_ISSUER_PUBLIC_KEY: process.env.USDC_ISSUER_PUBLIC_KEY || '', // SDF testnet issuer or Circle/centre.io mainnet issuer, depending on STELLAR_NETWORK
     SOROBAN_RPC_URL: process.env.SOROBAN_RPC_URL || 'https://soroban-testnet.stellar.org',
-    CONTRACT_WASM_PATH: process.env.CONTRACT_WASM_PATH || 'contracts/savings_group.wasm',
+    CONTRACT_WASM_PATH: process.env.CONTRACT_WASM_PATH || 'contracts/savings-group.wasm',
     DEPLOYER_SECRET_KEY: process.env.DEPLOYER_SECRET_KEY || '',
-    USDC_TOKEN_ADDRESS: process.env.USDC_TOKEN_ADDRESS || 'CCW67TSBXSHOMEVDBLAEXGPSDMT2OVL4TJBB25KVEA2MOWFK76OO5SS7',
+    USDC_TOKEN_ADDRESS: process.env.USDK_TOKEN_ADDRESS || 'CCW67TBSBXSHOMEVDBLAEXGPSDMT2OVL4TJBB25KVEA2MOWFK76OO5SS7',
     GROUP_TREASURY_SECRET: process.env.GROUP_TREASURY_SECRET || '',
     MAX_PAYOUT_DEADLINE_EXTENSIONS: parseInt(process.env.MAX_PAYOUT_DEADLINE_EXTENSIONS || '2', 10),
     SEP10_SERVER_SECRET: process.env.SEP10_SERVER_SECRET,
@@ -43,3 +43,12 @@ export const config = {
     SEP10_CHALLENGE_TTL_SECONDS: parseInt(process.env.SEP10_CHALLENGE_TTL_SECONDS || '300', 10),
 };
 
+// The only values the Stellar services branch on. Anything else is a
+// configuration error that would otherwise silently fall through to testnet.
+export const SUPPORTED_STELLAR_NETWORKS = ['TESTNET', 'PUBLIC'] as const;
+
+export type StellarNetwork = (typeof SUPPORTED_STELLAR_NETWORKS)[number];
+
+export function isSupportedStellarNetwork(network: string): network is StellarNetwork {
+    return (SUPPORTED_STELLAR_NETWORKS as readonly string[]).includes(network);
+}

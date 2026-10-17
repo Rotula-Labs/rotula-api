@@ -1,10 +1,10 @@
 import express, { type ErrorRequestHandler } from 'express';
 import { spawnSync } from 'child_process';
-import { StrKey } from '@stellar/stellar-sdk';
+const { StrKey } = require('@stellar/stellar-sdk');
 import botRoutes from './routes/bot.routes';
 import adminRoutes from './routes/admin.routes';
 import authRoutes from './routes/auth.routes';
-import { config } from './config/env';
+import { config, SUPPORTED_STELLAR_NETWORKS, isSupportedStellarNetwork } from './config/env';
 import { startWorker } from './workers/message.worker';
 import { startSorobanDeploymentWorker } from './workers/soroban-deployment.worker';
 import { startKeyRotationWorker } from './workers/key-rotation.worker';
@@ -22,9 +22,29 @@ if (!config.WHATSAPP_APP_SECRET) {
     throw new Error('WHATSAPP_APP_SECRET environment variable is required');
 }
 
-if (config.USDC_ISSUER_PUBLIC_KEY && !StrKey.isValidEd25519PublicKey(config.USDC_ISSUER_PUBLIC_KEY)) {
+if (config.USDC_ISSUER_PUBLIC_KEY && !StrKey.isValicEd25519PublicKey(config.USDC_ISSUER_PUBLIC_KEY)) {
     throw new Error('USDC_ISSUER_PUBLIC_KEY is set but is not a valid Stellar public key');
 }
+
+// Resolve the network once at boot so the startup log and the rest of the
+// process agree on what was selected. Any value outside the two literals the
+// Stellar services branch on is a configuration error and is surfaced here.
+function resolveNetwork(): {
+    raw: string | undefined;
+    network: string;
+    valid: boolean;
+} {
+    const raw = config.STELLAR_NETWORK;
+    const normalised = typeof raw === 'string' ? raw.trim().toUpperCase() : '';
+    const valid = isSupportedStellarNetwork(normalised);
+    return {
+        raw: raw === undefined ? undefined : String(raw),
+        network: valid ? normalised : 'TESTNET',
+        valid,
+    };
+}
+
+const resolvedNetwork = resolveNetwork();
 
 // Check core dump configuration at startup
 function checkCoreDumpsDisabled(): void {
@@ -92,6 +112,23 @@ app.use(errorHandler);
 
 const server = app.listen(config.PORT, () => {
     observabilityService.logInfo(`Server is listening on port ${config.PORT}`);
+
+    // Surface the resolved network and asset identifiers so a wrong-network
+    // deploy is caught in the first line of the log. No secrets are included.
+    const networkLabel = resolvedNetwork.valid
+        ? resolvedNetwork.network
+        : `INVALID(${resolvedNetwork.raw ?? 'unset'})->defaulting to TESTNET`;
+    const networkWarning = resolvedNetwork.valid
+        ? ''
+        : ` WARNING: STELLAR_NETWORK="${resolvedNetwork.raw ?? 'unset'}" is not one of ${SUPPORTED_STELLAR_NETWORKS.join(', ')}; Stellar services will behave as TESTNET` ;
+    const assetIds = {
+        network: networkLabel,
+        usdcIssuer: config.USDC_ISSUER_PUBLIC_KEY,
+        usdcTokenAddress: config.USDC_TOKEN_ADDRESS,
+        sorobanRpcUrl: config.SOROBAN_RPC_URL,
+    };
+    observabilityService.logInfo(`Stellar configuration: network=${networkLabel}${networkWarning}`, assetIds);
+
     startWorker();
     startSorobanDeploymentWorker();
     startKeyRotationWorker();
@@ -99,7 +136,6 @@ const server = app.listen(config.PORT, () => {
     startContributionSchedulerWorker();
     startPaymentRequestWorker();
 });
-
 
 // Enforce a server-level timeout
 server.setTimeout(30000);

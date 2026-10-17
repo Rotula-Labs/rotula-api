@@ -34,9 +34,55 @@ export class ObservabilityService {
         };
         
         console.error(`[CRITICAL ALERT] Immediate action required:`, JSON.stringify(payload, null, 2));
-        
-        // In a real scenario, this would POST to Sentry, Datadog, or an incident management webhook.
-        // We decouple the alerting mechanism here so it's fully unit-testable.
+    }
+
+    /**
+     * Logs the resolved network and contract identifiers at boot.
+     * Makes a wrong-network deploy obvious in the first line of the log.
+     * No secrets are included.
+     */
+    public logBootConfiguration(config: {
+        network: string;
+        usdcIssuer?: string;
+        usdcTokenAddress?: string;
+        sorobanRpcUrl?: string;
+        port?: number | string;
+    }): void {
+        const network = (config.network ?? '').toUpperCase();
+        const isKnownNetwork = network === 'PUBLIC' || network === 'TESTNET';
+
+        const context: Record<string, any> = {
+            network,
+            usdcIssuer: config.usdcIssuer ?? '(not configured)',
+            usdcTokenAddress: config.usdcTokenAddress ?? '(not configured)',
+            sorobanRpcUrl: config.sorobanRpcUrl ?? '(not configured)',
+            port: config.port
+        };
+
+        if (!isKnownNetwork) {
+            this.logWarning(
+                `BOOT NETWORK MISMATCH: resolved network "${network}" is not 'PUBLIC' or 'TESTNET' -- Stellar services will fall back to testnet behaviour`,
+                context
+            );
+            return;
+        }
+
+        this.logInfo(`BOOT NETWORK RESOLVED - NETWORK: ${network}`, context);
+    }
+
+    /**
+     * Logs the resolved network and contract identifiers at boot.
+     * Makes a wrong-network deploy obvious in the first line of the log.
+     * No secrets are included.
+     */
+    public logBootConfig(config: {
+        network: string;
+        usdcIssuer?: string;
+        usdcTokenAddress?: string;
+        sorobanRpcUrl?: string;
+        port?: number | string;
+    }): void {
+        this.logBootConfiguration(config);
     }
 }
 
