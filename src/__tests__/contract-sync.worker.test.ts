@@ -162,6 +162,24 @@ describe('runReconciliation()', () => {
         expect(getMocks().create).not.toHaveBeenCalled();
     });
 
+    it('skips a group with null cycle columns instead of reporting divergence', async () => {
+        getMocks().findManyGroups.mockResolvedValue([
+            makeGroup({
+                currentCycleStart: null,
+                currentCycleEnd: null,
+            }),
+        ]);
+        // Even though on-chain has a balance, no cycle window means we cannot
+        // compare, so the group must be skipped rather than flagged.
+        mockSorobanService.queryContribution.mockResolvedValue(100_000_000n);
+        getMocks().findManyContributions.mockResolvedValue([]);
+
+        const summary = await runReconciliation(mockSorobanService as any);
+
+        expect(summary.mismatchesFound).toBe(0);
+        expect(getMocks().create).not.toHaveBeenCalled();
+    });
+
     it('detects and persists a mismatch when on-chain > DB (crash-recovery scenario)', async () => {
         getMocks().findManyGroups.mockResolvedValue([makeGroup()]);
         // on-chain: 10 XLM (confirmed), DB: 0 (write didn't happen)

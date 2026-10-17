@@ -66,7 +66,7 @@ export function startContractSyncWorker(): void {
  * called directly from tests.
  */
 export async function runReconciliation(sorobanService: SorobanService): Promise<ReconciliationSummary> {
-    const summary: ReconciliationSummary = { groupsScanned: 0, membersChecked: 0, mismatchesFound: 0, errors: [] };
+    const summary: ReconciliationSummary = { groupsScanned: 0, membersChecked: 0, mismatchesFound: 0, skippedGroups: 0, errors: [] };
 
     // Only scan groups that have a fully deployed Soroban contract
     const groups = await prisma.savingsGroup.findMany({
@@ -86,10 +86,15 @@ export async function runReconciliation(sorobanService: SorobanService): Promise
     for (const group of groups) {
         const contractId = group.stellarContractId!;
 
-        // Determine the current cycle window for DB lookups.
-        // Fall back to the beginning of time if no cycle has started yet.
-        const cycleStart = group.currentCycleStart ?? new Date(0);
-        const cycleEnd = group.currentCycleEnd ?? new Date();
+        // Require a real cycle window before comparing.  A group that has been
+        // deployed but has not had a cycle scheduled yet has null cycle columns;
+        // falling back to all-of-history would turn history into a mismatch.
+        if (!group.currentCycleStart || !group.currentCycleEnd) {
+            summary.skippedGroups++;
+            continue;
+        }
+        const cycleStart = group.currentCycleStart;
+        const cycleEnd = group.currentCycleEnd;
 
         for (const membership of group.members) {
             const member = membership.user;
@@ -178,6 +183,7 @@ export async function runReconciliation(sorobanService: SorobanService): Promise
         groupsScanned: summary.groupsScanned,
         membersChecked: summary.membersChecked,
         mismatchesFound: summary.mismatchesFound,
+        skippedGroups: summary.skippedGroups,
         errors: summary.errors.length,
     });
 
@@ -188,6 +194,7 @@ export interface ReconciliationSummary {
     groupsScanned: number;
     membersChecked: number;
     mismatchesFound: number;
+    skippedGroups: number;
     errors: string[];
 }
 
