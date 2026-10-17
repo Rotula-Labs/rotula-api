@@ -4,6 +4,12 @@ import { WhatsAppService } from './whatsapp.service';
 const whatsappService = new WhatsAppService();
 
 export interface CommandHistoryEntry {
+    verb: string;
+    tier: string;
+    timestamp: number;
+}
+
+interface RawCommandEntry {
     command: string;
     timestamp: number;
 }
@@ -29,9 +35,34 @@ export class AbuseDetectionService {
         return redisClient.status === 'ready' || redisClient.status === 'connect';
     }
     
+    private extractShape(commandText: string): { verb: string; tier: string } {
+        const trimmed = commandText.trim();
+        const match = trimmed.match(/^([A-Za-z]+)/);
+        const verb = match ? match[1].toUpperCase() : 'UNKNOWN';
+        const tier = this.classifyTier(verb);
+        return { verb, tier };
+    }
+    
+    private classifyTier(verb: string): string {
+        switch (verb) {
+            case 'CONTRIBUTE':
+            case 'SEND':
+            case 'WITHDRAW':
+            case 'TRANSFER':
+                return 'financial';
+            case 'BALANCE':
+            case 'HISTORY':
+            case 'STATUS':
+                return 'read';
+            default:
+                return 'other';
+        }
+    }
+    
     public async recordCommand(phoneNumber: string, commandText: string): Promise<void> {
         const now = Date.now();
-        const entry: CommandHistoryEntry = { command: commandText, timestamp: now };
+        const { verb, tier } = this.extractShape(commandText);
+        const entry: CommandHistoryEntry = { verb, tier, timestamp: now };
         
         if (this.isRedisAvailable()) {
             try {
@@ -73,7 +104,8 @@ export class AbuseDetectionService {
         const tenMinutesMs = 10 * 60 * 1000;
         
         // Always record this hit in command history too
-        await this.recordCommand(phoneNumber, `[RATE LIMIT HIT] ${commandText}`);
+        const { verb } = this.extractShape(commandText);
+        await this.recordCommand(phoneNumber, `[RATE LIMIT HIT] ${verb}`);
         
         let flagged = false;
         let hitsCount = 0;
