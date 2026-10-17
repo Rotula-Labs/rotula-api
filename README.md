@@ -150,7 +150,8 @@ Every value above is a placeholder in your own configuration; none is committed.
 ## Current status and limitations
 
 - The frontend and backend are not yet a fully connected product. Some frontend data, authentication, and wallet routes are prototypes.
-- Worker implementations exist, but not all are started by the current server entry point. Verify worker lifecycle before relying on a background flow.
+- Every worker is started by `src/index.ts` inside the `app.listen` callback (`startWorker`, `startSorobanDeploymentWorker`, `startKeyRotationWorker`, `startContractSyncWorker`, `startContributionSchedulerWorker`, and `startPaymentRequestWorker`).
+- The process does not yet close workers, queues, or database clients on shutdown; see [Development setup](#development-setup) and [Prerequisites](#prerequisites) for the services a deployment must handle.
 - Contract deployment, member lifecycle, contribution handling, and payout orchestration are still being aligned with the current Soroban ABI.
 - The contract code has a Stellar Testnet deployment for review, but no savings group has been initialized. This is not an active savings service.
 - Asset denomination is inconsistent: the product brief targets USDC, while implemented payment and command paths include XLM. Contract amounts are integer base units and require exact asset decimal handling.
