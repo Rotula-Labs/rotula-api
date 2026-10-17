@@ -20,14 +20,19 @@ export const getChallenge = (req: Request, res: Response) => {
 
 export const getToken = async (req: Request, res: Response) => {
     try {
-        const { transaction } = req.body;
+        const { transaction, scope } = req.body;
 
         if (!transaction || typeof transaction !== 'string') {
             res.status(400).json({ error: 'Missing or invalid transaction parameter' });
             return;
         }
 
-        const { token, account } = await authService.verifyChallengeAndGenerateToken(transaction);
+        if (scope !== undefined && typeof scope !== 'string') {
+            res.status(400).json({ error: 'Invalid scope parameter' });
+            return;
+        }
+
+        const { token, account } = await authService.verifyChallengeAndGenerateToken(transaction, scope);
         res.json({ token, account });
     } catch (error: any) {
         console.error('Error verifying challenge:', error);
