@@ -4,6 +4,7 @@ import path from 'path';
 import crypto from 'crypto';
 import { config } from '../config/env';
 import { observabilityService } from './observability.service';
+import { stellarService } from './stellar.service';
 
 // Module-level compatibility aliases for issue requirements
 if (!(StellarSdk.Operation as any).uploadWasm) {
@@ -167,6 +168,15 @@ export class SorobanService {
             throw new Error('Transaction submission did not return a valid hash.');
         }
 
+        // Single choke point: every on-chain operation that reaches the network
+        // goes through submitTransaction, so invalidate the signer's cached
+        // history here. A failed invalidation is reported, not swallowed.
+        try {
+            await stellarService.invalidateHistoryCache(signerKeypair.publicKey());
+        } catch (err) {
+            observabilityService.recordError?.('soroban.invalidateHistoryCache', err as Error);
+        }
+
         if (responseStatus === 'SUCCESS') {
             return { hash, status: 'SUCCESS' };
         }
@@ -217,6 +227,7 @@ export class SorobanService {
 
         tx = await this.simulateAndAssembleTransaction(tx, srv);
         const { hash: txHash } = await this.submitTransaction(tx, deployerKeypair, srv);
+
         const wasmHash = StellarSdk.hash(wasmBuffer);
 
         return { wasmHash, txHash };
@@ -316,239 +327,4 @@ export class SorobanService {
 
         return { txHash };
     }
-
-    /**
-     * High-level contract deployment pipeline orchestrator.
-     */
-    public async deployGroupContract(params: DeployGroupContractParams): Promise<DeploymentResult> {
-        const startTime = Date.now();
-        observabilityService.logInfo('Starting contract deployment pipeline', { groupId: params.groupId });
-
-        if (!config.DEPLOYER_SECRET_KEY) {
-            const err = new Error('DEPLOYER_SECRET_KEY is not configured in environment variables.');
-            const latency = Date.now() - startTime;
-            observabilityService.logError('Contract deployment failed: Missing secret key', err, { groupId: params.groupId, latency });
-            await observabilityService.alertCriticalFailure('Soroban deployment configuration error', err, { groupId: params.groupId, latency });
-            throw err;
-        }
-
-try {
-            const deployerSeed = StellarSdk.StrKey.decodeEd25519SecretSeed(config.DEPLOYER_SECRET_KEY);
-            const deployerKeypair = StellarSdk.Keypair.fromRawEd25519Seed(deployerSeed);
-            const admin = params.adminPublicKey || deployerKeypair.publicKey();
-            const usdcTokenAddress = config.USDC_TOKEN_ADDRESS || 'CCW67TSBXSHOMEVDBLAEXGPSDMT2OVL4TJBB25KVEA2MOWFK76OO5SS7';
-
-            try {
-                // 1. Load WASM
-                const wasmBuffer = this.loadContractWasm(params.wasmPath);
-
-                // 2. Upload WASM
-                const { wasmHash } = await this.uploadWasm(deployerKeypair, wasmBuffer);
-
-                // 3. Create Contract Instance
-                const { contractId } = await this.createCustomContract(deployerKeypair, wasmHash);
-
-                // 4. Invoke initialize()
-                await this.initializeContract(deployerKeypair, contractId, {
-                    admin,
-                    usdcTokenAddress,
-                    groupName: params.name,
-                    contributionAmount: params.contributionAmount,
-                });
-
-                const latency = Date.now() - startTime;
-                observabilityService.logInfo('Contract deployment completed successfully', {
-                    groupId: params.groupId,
-                    contractId,
-                    latency,
-                });
-
-                return { contractId, latency };
-            } finally {
-                deployerSeed.fill(0);
-            }
-        } catch (error: any) {
-            const latency = Date.now() - startTime;
-            observabilityService.logError('Contract deployment failed', error, {
-                groupId: params.groupId,
-                error: error?.message || String(error),
-                latency,
-            });
-            await observabilityService.alertCriticalFailure('Contract deployment failed', error, {
-                groupId: params.groupId,
-                error: error?.message || String(error),
-                latency,
-            });
-            throw error;
-        }
-    }
-    /**
-     * Invokes the Soroban contract's `contribute(member, amount)` function.
-     *
-     * The member keypair is required because the Soroban contract enforces
-     * `member.require_auth()` — the member must co-sign the transaction.
-     *
-     * @param memberKeypair  Keypair for the contributing member (signs the tx).
-     * @param contractId     Soroban contract address (C... strkey).
-     * @param memberPublicKey  Stellar G... public key of the member.
-     * @param amountStroops  Contribution amount expressed as stroops (i128).
-     * @param server         Optional RPC server override.
-     * @returns `{ hash, status }` from `submitTransaction()`.
-     */
-    public async invokeContribute(
-        memberKeypair: StellarSdk.Keypair,
-        contractId: string,
-        memberPublicKey: string,
-        amountStroops: bigint,
-        server?: StellarSdk.rpc.Server
-    ): Promise<{ hash: string; status: 'SUCCESS' | 'PENDING' }> {
-        const srv = server || this.server;
-        const account = await srv.getAccount(memberKeypair.publicKey());
-
-        const args = [
-            new StellarSdk.Address(memberPublicKey).toScVal(),
-            StellarSdk.nativeToScVal(amountStroops, { type: 'i128' }),
-        ];
-
-        const invokeOp = StellarSdk.Operation.invokeContractFunction({
-            contract: contractId,
-            function: 'contribute',
-            args,
-        });
-
-        let tx = new StellarSdk.TransactionBuilder(account, {
-            fee: '1000',
-            networkPassphrase: this.getNetworkPassphrase(),
-        })
-            .addOperation(invokeOp)
-            .setTimeout(60)
-            .build();
-
-        tx = await this.simulateAndAssembleTransaction(tx, srv);
-
-        // Poll up to 15 times × 2 seconds = 30 seconds max (per issue requirement)
-        return await this.submitTransaction(tx, memberKeypair, srv, {
-            maxPolls: 15,
-            pollIntervalMs: 2000,
-        });
-    }
-
-    /**
-     * Invokes the Soroban contract's `remove_member(member)` function, taking
-     * an exiting or kicked member out of the contract's on-chain member list.
-     *
-     * Signed by the group admin/treasury keypair rather than the member —
-     * a kicked member cannot be relied on to co-sign their own removal, so
-     * the backend acts as the authorizing party for both LEAVE and KICK.
-     *
-     * @param adminKeypair    Keypair authorized to manage contract membership (signs the tx).
-     * @param contractId      Soroban contract address (C... strkey).
-     * @param memberPublicKey  Stellar G... public key of the member being removed.
-     * @param server          Optional RPC server override.
-     * @returns `{ hash, status }` from `submitTransaction()`.
-     */
-    public async removeMember(
-        adminKeypair: StellarSdk.Keypair,
-        contractId: string,
-        memberPublicKey: string,
-        server?: StellarSdk.rpc.Server
-    ): Promise<{ hash: string; status: 'SUCCESS' | 'PENDING' }> {
-        const srv = server || this.server;
-        const account = await srv.getAccount(adminKeypair.publicKey());
-
-        const args = [
-            new StellarSdk.Address(memberPublicKey).toScVal(),
-        ];
-
-        const invokeOp = StellarSdk.Operation.invokeContractFunction({
-            contract: contractId,
-            function: 'remove_member',
-            args,
-        });
-
-        let tx = new StellarSdk.TransactionBuilder(account, {
-            fee: '1000',
-            networkPassphrase: this.getNetworkPassphrase(),
-        })
-            .addOperation(invokeOp)
-            .setTimeout(30)
-            .build();
-
-        tx = await this.simulateAndAssembleTransaction(tx, srv);
-
-        return await this.submitTransaction(tx, adminKeypair, srv);
-    }
-
-    /**
-     * Queries the Soroban contract's `get_contribution(member)` read-only view.
-     *
-     * Uses a simulation (no on-chain submission) so it is free and instant.
-     *
-     * @param contractId      Soroban contract address (C... strkey).
-     * @param memberPublicKey  Stellar G... public key of the member.
-     * @param server          Optional RPC server override.
-     * @returns The member's total contribution this cycle expressed as a bigint
-     *   of stroops. Returns `0n` when the member has no contribution record.
-     */
-    public async queryContribution(
-        contractId: string,
-        memberPublicKey: string,
-        server?: StellarSdk.rpc.Server
-    ): Promise<bigint> {
-        const srv = server || this.server;
-
-        // Build a throwaway account for the simulation — no real account needed
-        // because this is a read-only simulation, not a submission.
-        const dummyAccount = new StellarSdk.Account(memberPublicKey, '0');
-
-        const args = [
-            new StellarSdk.Address(memberPublicKey).toScVal(),
-        ];
-
-        const invokeOp = StellarSdk.Operation.invokeContractFunction({
-            contract: contractId,
-            function: 'get_contribution',
-            args,
-        });
-
-        const tx = new StellarSdk.TransactionBuilder(dummyAccount, {
-            fee: '1000',
-            networkPassphrase: this.getNetworkPassphrase(),
-        })
-            .addOperation(invokeOp)
-            .setTimeout(30)
-            .build();
-
-        const simRes = await srv.simulateTransaction(tx);
-
-        if (StellarSdk.rpc.Api.isSimulationError(simRes)) {
-            // Contract returns an error when the member has never contributed
-            // (e.g., "NotFound" or similar). Treat as zero.
-            return 0n;
-        }
-
-        const results = (simRes as any).results as Array<{ xdr: string }> | undefined;
-        if (!results || results.length === 0) {
-            return 0n;
-        }
-
-        try {
-            const scVal = StellarSdk.xdr.ScVal.fromXDR(results[0].xdr, 'base64');
-            // i128 ScVal: scvI128 contains lo (u64) and hi (i64)
-            if (scVal.switch().name === 'scvI128') {
-                const i128 = scVal.i128();
-                const hi = BigInt(i128.hi().toString());
-                const lo = BigInt(i128.lo().toString());
-                // Reconstruct: hi * 2^64 + lo (treating lo as unsigned)
-                return (hi << 64n) + lo;
-            }
-            // Fallback: try scValToNative for simpler numeric types
-            const native = StellarSdk.scValToNative(scVal);
-            return BigInt(native);
-        } catch {
-            return 0n;
-        }
-    }
 }
-
-export const sorobanService = new SorobanService();

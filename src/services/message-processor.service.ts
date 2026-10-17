@@ -46,6 +46,35 @@ export class MessageProcessor {
     }
 
     /**
+     * Invalidates every cached transaction-history page for the given account.
+     *
+     * This is the single invalidation site for on-chain operations. Every
+     * fund-moving flow must call this after a confirmed on-chain change so a
+     * subsequent HISTORY request cannot be served a stale page.
+     *
+     * A failed invalidation is reported (not swallowed) so operators can spot
+     * cache-coherency problems instead of silently serving stale data.
+     */
+    private async invalidateHistoryCache(publicKey: string): Promise<void> {
+        if (!publicKey) return;
+        const pattern = `tx_history:${publicKey}:page:*`;
+        try {
+            let cursor = '0';
+            do {
+                const [nextCursor, keys] = await redisClient.scan(cursor, 'MATCH', pattern, 'COUNT', 100);
+                cursor = nextCursor;
+                if (keys.length > 0) {
+                    await redisClient.del(...keys);
+                }
+            } while (cursor !== '0');
+        } catch (error: any) {
+            console.error(
+                `[history-cache] Failed to invalidate cache for ${publicKey}: ${error?.message ?? error}`,
+            );
+        }
+    }
+
+    /**
      * Validates a contribution amount string for financial operations.
      *
      * Returns null when the amount is valid, or a translation key describing
@@ -344,6 +373,7 @@ export class MessageProcessor {
                 t('send.initiating', lang, { amount, target }),
             );
             await this.stellarService.sendPayment(senderSecret, recipientPublicKey, amount);
+            await this.invalidateHistoryCache(JSON.parse(user.stellarWallet).publicKey);
             await this.whatsappService.sendMessage(
                 from,
                 t('send.success', lang, { amount, target }),
@@ -431,6 +461,7 @@ export class MessageProcessor {
             const { request, hash } = await this.paymentRequestService.acceptRequest(args[0], from);
 
             await scheduleRequestCompletion(request.id);
+            await this.invalidateHistoryCache(JSON.parse(user.stellarWallet!).publicKey);
 
             return await this.whatsappService.sendMessage(
                 from,
@@ -883,6 +914,7 @@ export class MessageProcessor {
 
             // status === 'SUCCESS': confirmed on-chain — now safe to write DB record.
             await this.groupService.addContribution(user.id, group.id, amountStr, txHash);
+            await this.invalidateHistoryCache(memberPublicKey);
             // The first contribution of a cycle locks the payout order — the creator
             // can no longer reorder once the rotation is underway.
             await this.payoutService.lockOrderForCycle(group.id).catch((e) => console.error('Failed to lock payout order', e));

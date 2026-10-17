@@ -270,6 +270,55 @@ describe('StellarService', () => {
         });
     });
 
+    describe('invalidateHistoryCache', () => {
+        it('should delete every cached page for the given account', async () => {
+            mockRedisScan
+                .mockResolvedValueOnce(['0', ['tx_history:G_MOCK:page:1', 'tx_history:G_MOCK:page:2']]);
+
+            await (stellarService as any).invalidateHistoryCache('G_MOCK');
+
+            expect(mockRedisDel).toHaveBeenCalledWith('tx_history:G_MOCK:page:1');
+            expect(mockRedisDel).toHaveBeenCalledWith('tx_history:G_MOCK:page:2');
+        });
+
+        it('should report a failed invalidation instead of swallowing it', async () => {
+            mockRedisScan.mockRejectedValueOnce(new Error('redis down'));
+            const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+
+            try {
+                await expect((stellarService as any).invalidateHistoryCache('G_MOCK')).rejects.toThrow('redis down');
+                expect(consoleSpy).toHaveBeenCalledWith('Error invalidating history cache:', expect.any(Error));
+            } finally {
+                consoleSpy.mockRestore();
+            }
+        });
+    });
+
+    describe('createTrustline cache invalidation', () => {
+        const issuer = 'GA5SUFR3QFFS6UJWJA3YMMLWQ56J3WGUOJ672JH4L6FBW6DYOHAXNHIC';
+        const mockSeed = Buffer.from('0'.repeat(32));
+
+        it('should invalidate the account history cache after a successful trustline', async () => {
+            mockRedisScan.mockResolvedValueOnce(['0', ['tx_history:G_MOCK_PUBLIC_KEY:page:1']]);
+
+            await stellarService.createTrustline(mockSeed, 'USDC', issuer);
+
+            expect(mockRedisDel).toHaveBeenCalledWith('tx_history:G_MOCK_PUBLIC_KEY:page:1');
+        });
+    });
+
+    describe('claimClaimableBalance cache invalidation', () => {
+        const mockSeed = Buffer.from('0'.repeat(32));
+
+        it('should invalidate the account history cache after claiming a balance', async () => {
+            mockRedisScan.mockResolvedValueOnce(['0', ['tx_history:G_MOCK_PUBLIC_KEY:page:1']]);
+
+            await stellarService.claimClaimableBalance(mockSeed, 'BALANCE_ID');
+
+            expect(mockRedisDel).toHaveBeenCalledWith('tx_history:G_MOCK_PUBLIC_KEY:page:1');
+        });
+    });
+
     describe('getTransactionHistory', () => {
         const mockOpCall = jest.fn();
         const mockTxCall = jest.fn();
@@ -320,6 +369,44 @@ describe('StellarService', () => {
             mockRedisGet.mockResolvedValue(null);
             mockTxCall.mockRejectedValue({ response: { status: 404 } });
             await expect(stellarService.getTransactionHistory('G_MOCK')).rejects.toThrow(/funded yet/);
+        });
+    });
+
+    describe('history freshness after a payout', () => {
+        const mockSeed = Buffer.from('0'.repeat(32));
+        const recipient = 'GBBM6BKZPEHWPI3VK3VNKEJEXTMIGNNCE2ZEXSVEEKSJNDYTK2E4QUDE';
+
+        it('should not serve stale history immediately after a payout', async () => {
+            mockRedisGet.mockResolvedValue(null);
+            mockRedisScan.mockResolvedValueOnce(['0', [`tx_history:${recipient}:page:1`]]);
+            mockRedisScan.mockResolvedValueOnce(['0', ['tx_history:G_MOCK:page:1']]);
+
+            await stellarService.sendPayment(mockSeed, recipient, '10.0');
+
+            expect(mockRedisDel).toHaveBeenCalledWith(`tx_history:${recipient}:page:1`);
+
+            const mockTxCall = jest.fn().mockResolvedValue({
+                records: [{
+                    id: 'tx_payout',
+                    created_at: '2026-06-25T00:00:00Z',
+                    hash: 'PAYOUT_HASH',
+                    operations: jest.fn().mockResolvedValue({
+                        records: [{ type: 'payment', amount: '10.0', asset_type: 'native', from: 'G_MOCK', to: recipient }]
+                    })
+                }]
+            });
+            (mServer as any).transactions = jest.fn().mockReturnValue({
+                forAccount: jest.fn().mockReturnThis(),
+                order: jest.fn().mockReturnThis(),
+                limit: jest.fn().mockReturnThis(),
+                cursor: jest.fn().mockReturnThis(),
+                call: mockTxCall,
+            });
+
+            const result = await stellarService.getTransactionHistory(recipient);
+            expect(mockTxCall).toHaveBeenCalled();
+            expect(result.transactions.length).toBe(1);
+            expect(result.transactions[0].amount).toBe('10.0');
         });
     });
 });

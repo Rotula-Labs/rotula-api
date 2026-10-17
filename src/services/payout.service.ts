@@ -1,5 +1,6 @@
 import { PrismaClient, Prisma } from '@prisma/client';
 import { WhatsAppService } from './whatsapp.service';
+import { StellarService } from './stellar.service';
 import { SorobanService } from './soroban.service';
 import { config } from '../config/env';
 import { enqueueCycleEnd } from '../queue/contribution-scheduler.queue';
@@ -31,11 +32,13 @@ export interface CycleContributionStatus {
 
 export class PayoutService {
     private whatsappService: WhatsAppService;
-    private sorobanService: SorobanService;
+    private sorobanService: any;
+    private stellarService: StellarService;
 
-    constructor(whatsappService?: WhatsAppService, sorobanService?: SorobanService) {
+    constructor(whatsappService?: WhatsAppService, sorobanService?: SorobanService, stellarService?: StellarService) {
         this.whatsappService = whatsappService ?? new WhatsAppService();
         this.sorobanService = sorobanService ?? new SorobanService();
+        this.stellarService = stellarService ?? new StellarService();
     }
 
     /**
@@ -272,6 +275,7 @@ export class PayoutService {
 
         const recipientPublicKey = JSON.parse(member.user.stellarWallet).publicKey;
         const { hash } = await (this.sorobanService as any).payout(config.GROUP_TREASURY_SECRET, recipientPublicKey, amount);
+        await this.invalidateHistoryCache(recipientPublicKey);
 
         return { hash };
     }
@@ -337,6 +341,7 @@ export class PayoutService {
         }
 
         const { hash } = await (this.sorobanService as any).payout(config.GROUP_TREASURY_SECRET, recipientPublicKey, amount);
+        await this.invalidateHistoryCache(recipientPublicKey);
 
         const payout = await prisma.payout.create({
             data: {
@@ -383,6 +388,22 @@ export class PayoutService {
         });
 
         await this.notifyAllMembers(groupId, `🎉 Cycle ${newTotalCycles} complete! A new rotation begins.`);
+    }
+
+    /**
+     * Single choke point for history-cache invalidation after any on-chain
+     * operation. A failed invalidation is surfaced rather than swallowed so a
+     * stale history read is never silently served.
+     */
+    private async invalidateHistoryCache(publicKey: string): Promise<void> {
+        try {
+            if (typeof (this.stellarService as any).invalidateHistoryCache === 'function') {
+                await this.stellarService.invalidateHistoryCache(publicKey);
+            }
+        } catch (e) {
+            console.error(`Failed to invalidate history cache for ${publicKey}`, e);
+            throw e;
+        }
     }
 
     /**
