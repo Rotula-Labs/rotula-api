@@ -41,5 +41,6 @@ export const config = {
     SEP10_HOME_DOMAIN: process.env.SEP10_HOME_DOMAIN || 'localhost',
     JWT_SECRET: process.env.JWT_SECRET,
     SEP10_CHALLENGE_TTL_SECONDS: parseInt(process.env.SEP10_CHALLENGE_TTL_SECONDS || '300', 10),
+    REDIS_REQUIRED: (process.env.REDIS_REQUIRED || 'false').toLowerCase() === 'true',
 };
 

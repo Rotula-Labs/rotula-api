@@ -38,6 +38,29 @@ export class ObservabilityService {
         // In a real scenario, this would POST to Sentry, Datadog, or an incident management webhook.
         // We decouple the alerting mechanism here so it's fully unit-testable.
     }
+
+    /**
+     * Reports a Redis connection state transition to observability.
+     * Each significant transition produces a log line; connection losses raise a critical alert.
+     */
+    public reportRedisState(
+        state: 'connect' | 'ready' | 'close' | 'reconnecting' | 'end' | 'error',
+        context?: Record<string, any>
+    ): void {
+        const message = `Redis connection state transition: ${state}`;
+
+        if (state === 'error' || state === 'close' || state === 'end') {
+            this.logWarning(message, context);
+            void this.alertCriticalFailure(
+                'Redis connection lost',
+                new Error(`Redis connection state: ${state}`),
+                { state, ...context }
+            );
+            return;
+        }
+
+        this.logInfo(message, { state, ...context });
+    }
 }
 
 export const observabilityService = new ObservabilityService();

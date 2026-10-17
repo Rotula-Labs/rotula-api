@@ -1,7 +1,9 @@
 import { redisClient } from '../lib/redis';
 import { WhatsAppService } from './whatsapp.service';
+import { observabilityService } from './observability.service';
 
 const whatsappService = new WhatsAppService();
+const redisRequired = process.env.REDIS_REQUIRED === 'true';
 
 export interface CommandHistoryEntry {
     command: string;
@@ -18,6 +20,46 @@ export class AbuseDetectionService {
     
     public setForceRedisFailure(val: boolean) {
         this.forceRedisFailure = val;
+    }
+
+    private redisLostAt: number | null = null;
+    private redisListenersAttached = false;
+
+    private attachRedisListeners(): void {
+        if (this.redisListenersAttached) {
+            return;
+        }
+        this.redisListenersAttached = true;
+
+        redisClient.on('connect', () => {
+            observabilityService.log('info', '[REDIS] Connection established');
+        });
+
+        redisClient.on('ready', () => {
+            if (this.redisLostAt !== null) {
+                const elapsed = Date.now() - this.redisLostAt;
+                observabilityService.log('info', `[REDIS] Reconnected after ${elapsed}ms`);
+                this.redisLostAt = null;
+            } else {
+                observabilityService.log('info', '[REDIS] Client ready');
+            }
+        });
+
+        redisClient.on('close', () => {
+            this.redisLostAt = Date.now();
+            observabilityService.log('warn', '[REDIS] Connection closed');
+            if (redisRequired) {
+                observabilityService.alert('critical', '[REDIS] Connection lost in required environment');
+            }
+        });
+
+        redisClient.on('reconnecting', (retryCount?: number) => {
+            observabilityService.log('warn', `[REDIS] Reconnecting (retry ${retryCount ?? 'unknown'})`);
+        });
+
+        redisClient.on('end', () => {
+            observabilityService.log('warn', '[REDIS] Connection ended');
+        });
     }
     
     private isRedisAvailable(): boolean {
