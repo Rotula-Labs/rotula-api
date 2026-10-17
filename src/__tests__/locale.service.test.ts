@@ -140,6 +140,46 @@ describe('locale.service', () => {
         });
     });
 
+    describe('t — unresolved keys', () => {
+        it('should not return the raw dotted key for a missing key', async () => {
+            const { initI18n, t } = await import('../services/locale.service');
+            await initI18n();
+            const result = t('wallet.usdc_trustline_low_reserve', 'en');
+            expect(result).not.toContain('wallet.usdc_trustline_low_reserve');
+            expect(typeof result).toBe('string');
+            expect(result.length).toBeGreaterThan(0);
+        });
+
+        it('should log an error naming the key and locale for a missing key', async () => {
+            const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+            const { initI18n, t } = await import('../services/locale.service');
+            await initI18n();
+            t('wallet.usdc_trustline_low_reserve', 'en');
+            const logged = errorSpy.mock.calls.map((c) => c.args.map(String)).join(' ');
+            expect(logged).toContain('wallet.usdc_trustline_low_reserve');
+            expect(logged).toContain('en');
+            errorSpy.mockRestore();
+        });
+
+        it('should return a safe generic message for a missing key', async () => {
+            const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+            const { initI18n, t } = await import('../services/locale.service');
+            await initI18n();
+            const result = t('some.missing.key', 'en');
+            expect(result).not.toContain('some.missing.key');
+            expect(result).toMatch(/something went wrong|unable to process/i);
+            errorSpy.mockRestore();
+        });
+
+        it('should return a present key unchanged (no fallback substitution)', async () => {
+            const { initI18n, t } = await import('../services/locale.service');
+            await initI18n();
+            const result = t('unknown.command', 'en');
+            expect(result).toContain("didn't understand");
+            expect(result).not.toContain('unknown.command');
+        });
+    });
+
     describe('isSupportedLanguage', () => {
         it('should return true for en', async () => {
             const { initI18n, isSupportedLanguage } = await import('../services/locale.service');
