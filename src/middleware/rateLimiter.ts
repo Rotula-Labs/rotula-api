@@ -1,6 +1,6 @@
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import RedisStore from 'rate-limit-redis';
-import { redisClient } from '../lib/redis';
+const { redisClient } = require('../lib/redis');
 
 export const customKeyGenerator = (req: any): string => {
     // Attempt to extract the WhatsApp sender's phone number
@@ -16,6 +16,28 @@ export const customKeyGenerator = (req: any): string => {
     const ip = req.ip || req.socket?.remoteAddress || 'unknown';
     return ip !== 'unknown' ? ipKeyGenerator(ip) : ip;
 };
+
+const MAX_FALLBACK_KEYS = 10000;
+const fallbackHits = new Map<string, { hits: number; ts: number }>();
+
+function boundedIncrement(key: string): number {
+    const now = Date.now();
+    const entry = fallbackHits.get(key);
+    if (entry) {
+        entry.hits += 1;
+        entry.ts = now;
+        // refresh LRU order
+        fallbackHits.delete(key);
+        fallbackHits.set(key, entry);
+        return entry.hits;
+    }
+    fallbackHits.set(key, { hits: 1, ts: now });
+    if (fallbackHits.size > MAX_FALLBACK_KEYS) {
+        const oldest = fallbackHits.keys().next().value;
+        if (oldest !== undefined) fallbackHits.delete(oldest);
+    }
+    return 1;
+}
 
 export const webhookRateLimiter = rateLimit({
     windowMs: 60 * 1000, // 1 minute

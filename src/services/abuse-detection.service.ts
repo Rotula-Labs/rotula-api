@@ -8,10 +8,71 @@ export interface CommandHistoryEntry {
     timestamp: number;
 }
 
+interface BoundedEntry<T> {
+    value: T;
+    lastAccess: number;
+}
+
+class BoundedMap<K, V> {
+    private map = new Map<K, BoundedEntry<V>>();
+    private readonly maxSize: number;
+
+    constructor(maxSize: number) {
+        this.maxSize = maxSize;
+    }
+
+    public get(key: K): V | undefined {
+        const entry = this.map.get(key);
+        if (entry === undefined) {
+            return undefined;
+        }
+        entry.lastAccess = Date.now();
+        return entry.value;
+    }
+
+    public set(key: K, value: V): void {
+        if (this.map.has(key)) {
+            this.map.delete(key);
+        } else if (this.map.size >= this.maxSize) {
+            this.evictOldest();
+        }
+        this.map.set(key, { value, lastAccess: Date.now() });
+    }
+
+    public has(key: K): boolean {
+        const entry = this.map.get(key);
+        if (entry === undefined) {
+            return false;
+        }
+        entry.lastAccess = Date.now();
+        return true;
+    }
+
+    public clear(): void {
+        this.map.clear();
+    }
+
+    private evictOldest(): void {
+        let oldestKey: K | undefined;
+        let oldestAccess = Infinity;
+        for (const [key, entry] of this.map) {
+            if (entry.lastAccess < oldestAccess) {
+                oldestAccess = entry.lastAccess;
+                oldestKey = key;
+            }
+        }
+        if (oldestKey !== undefined) {
+            this.map.delete(oldestKey);
+        }
+    }
+}
+
+const MAX_TRACKED_PHONES = 1000;
+
 export class AbuseDetectionService {
-    private inMemoryHits = new Map<string, number[]>();
-    private inMemoryFlags = new Map<string, string>();
-    private inMemoryHistory = new Map<string, CommandHistoryEntry[]>();
+    private inMemoryHits = new BoundedMap<string, number[]>(MAX_TRACKED_PHONES);
+    private inMemoryFlags = new BoundedMap<string, string>(MAX_TRACKED_PHONES);
+    private inMemoryHistory = new BoundedMap<string, CommandHistoryEntry[]>(MAX_TRACKED_PHONES);
     
     // For test simulation of Redis failure
     private forceRedisFailure = false;
