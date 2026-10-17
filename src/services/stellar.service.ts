@@ -88,6 +88,11 @@ export class StellarService {
     /**
      * Returns current asset balances for a given Stellar account.
      */
+    /**
+     * Returns current asset balances for a given Stellar account.
+     * Throws when the balance lookup fails so callers can distinguish an
+     * unavailable balance from an account that genuinely holds no funds.
+     */
     public async checkBalance(publicKey: string): Promise<AssetBalance[]> {
         try {
             const account = await this.server.loadAccount(publicKey);
@@ -98,7 +103,7 @@ export class StellarService {
             }));
         } catch (error) {
             console.error('Error checking balance:', error);
-            return [];
+            throw error;
         }
     }
 

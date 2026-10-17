@@ -171,6 +171,28 @@ describe('MessageProcessor', () => {
             );
         });
 
+        it('should report an unavailable balance when the lookup fails', async () => {
+            mockCheckBalance.mockRejectedValueOnce(new Error('Horizon unavailable'));
+            await processor.processCommand('12345', 'BALANCE');
+            expect(mockSendMessage).toHaveBeenCalledWith(
+                '12345',
+                expect.stringContaining('balance.unavailable'),
+            );
+        });
+
+        it('should render an empty balance when the account has no funds', async () => {
+            mockCheckBalance.mockResolvedValueOnce([]);
+            await processor.processCommand('12345', 'BALANCE');
+            expect(mockSendMessage).toHaveBeenCalledWith(
+                '12345',
+                expect.stringContaining('balance.success'),
+            );
+            expect(mockSendMessage).not.toHaveBeenCalledWith(
+                '12345',
+                expect.stringContaining('balance.unavailable'),
+            );
+        });
+
         it('should handle PROFILE command', async () => {
             await processor.processCommand('12345', 'PROFILE');
             expect(mockSendMessage).toHaveBeenCalledWith('12345', expect.stringContaining('profile.card'));
@@ -743,6 +765,20 @@ describe('MessageProcessor', () => {
             mockGetOrCreateUser.mockResolvedValueOnce(noWalletUser).mockResolvedValueOnce(noWalletUser);
             await processor.processCommand('12345', 'BALANCE');
             expect(mockSendMessage).toHaveBeenCalledWith('12345', expect.stringContaining('balance.no_wallet'));
+        });
+
+        it('should distinguish a failed lookup from an unfunded account', async () => {
+            mockCheckBalance.mockRejectedValueOnce(new Error('Horizon unavailable'));
+            await processor.processCommand('12345', 'BALANCE');
+            const [, failedMessage] = mockSendMessage.mock.calls[0];
+            expect(failedMessage).toContain('balance.unavailable');
+
+            mockSendMessage.mockClear();
+            mockCheckBalance.mockResolvedValueOnce([]);
+            await processor.processCommand('12345', 'BALANCE');
+            const [, emptyMessage] = mockSendMessage.mock.calls[0];
+            expect(emptyMessage).toContain('balance.success');
+            expect(emptyMessage).not.toContain('balance.unavailable');
         });
     });
 

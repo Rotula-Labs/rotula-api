@@ -169,13 +169,19 @@ describe('StellarService', () => {
             ]);
         });
 
-        it('should return an empty array when the account lookup fails', async () => {
+        it('should return an empty array when the account has no funds', async () => {
+            mServer.loadAccount.mockResolvedValueOnce({ balances: [] });
+
+            const balances = await stellarService.checkBalance('G_MOCK');
+            expect(balances).toEqual([]);
+        });
+
+        it('should report a failed lookup instead of an empty balance', async () => {
             mServer.loadAccount.mockRejectedValueOnce(new Error('network unavailable'));
             const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
 
             try {
-                const balances = await stellarService.checkBalance('G_MOCK');
-                expect(balances).toEqual([]);
+                await expect(stellarService.checkBalance('G_MOCK')).rejects.toThrow();
                 expect(consoleSpy).toHaveBeenCalledWith('Error checking balance:', expect.any(Error));
             } finally {
                 consoleSpy.mockRestore();
