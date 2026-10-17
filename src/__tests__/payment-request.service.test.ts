@@ -89,6 +89,42 @@ describe('PaymentRequestService', () => {
             await expect(service.createRequest('u1', 'u2', '50')).rejects.toThrow(PaymentRequestError);
             expect(prisma.paymentRequest.create).not.toHaveBeenCalled();
         });
+
+        it('rejects a self-request with its dedicated code and writes no row', async () => {
+            (prisma.paymentRequest.count as jest.Mock).mockResolvedValue(0);
+
+            await expect(service.createRequest('u1', 'u1', '50')).rejects.toMatchObject({ code: 'self_request' });
+            expect(prisma.paymentRequest.create).not.toHaveBeenCalled();
+        });
+
+        it('rejects a negative amount before any write', async () => {
+            (prisma.paymentRequest.count as jest.Mock).mockResolvedValue(0);
+
+            await expect(service.createRequest('u1', 'u2', '-1')).rejects.toMatchObject({ code: 'invalid_amount' });
+            expect(prisma.paymentRequest.create).not.toHaveBeenCalled();
+        });
+
+        it('rejects a zero amount before any write', async () => {
+            (prisma.paymentRequest.count as jest.Mock).mockResolvedValue(0);
+
+            await expect(service.createRequest('u1', 'u2', '0')).rejects.toMatchObject({ code: 'invalid_amount' });
+            expect(prisma.paymentRequest.create).not.toHaveBeenCalled();
+        });
+
+        it('rejects a non-numeric amount before any write', async () => {
+            (prisma.paymentRequest.count as jest.Mock).mockResolvedValue(0);
+
+            await expect(service.createRequest('u1', 'u2', 'not-a-number')).rejects.toMatchObject({ code: 'invalid_amount' });
+            expect(prisma.paymentRequest.create).not.toHaveBeenCalled();
+        });
+
+        it('rejects when the pending-count cap is reached, independently of concurrency', async () => {
+            (prisma.paymentRequest.count as jest.Mock).mockResolvedValue(5);
+
+            await expect(service.createRequest('u1', 'u2', '50')).rejects.toMatchObject({ code: 'too_many_pending' });
+            expect(prisma.paymentRequest.count).toHaveBeenCalledWith({ where: { requesterId: 'u1', status: 'PENDING' } });
+            expect(prisma.paymentRequest.create).not.toHaveBeenCalled();
+        });
     });
 
     describe('acceptRequest', () => {
