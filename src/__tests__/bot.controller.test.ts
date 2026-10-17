@@ -2,6 +2,7 @@ import { BotController } from '../controllers/bot.controller';
 import { Request, Response } from 'express';
 
 const mockEnqueueMessage = jest.fn().mockResolvedValue({ id: 'mock-job-id' });
+const mockIsMessageProcessed = jest.fn().mockResolvedValue(false);
 
 jest.mock('../queue/message.queue', () => ({
     enqueueMessage: (...args: any[]) => mockEnqueueMessage(...args),
@@ -15,6 +16,10 @@ jest.mock('../services/observability.service', () => ({
     observabilityService: { logInfo: jest.fn(), alertCriticalFailure: jest.fn() },
 }));
 
+jest.mock('../services/deduplication.service', () => ({
+    isMessageProcessed: (...args: any[]) => mockIsMessageProcessed(...args),
+}));
+
 describe('BotController', () => {
     let botController: BotController;
     let mockReq: Partial<Request>;
@@ -22,6 +27,7 @@ describe('BotController', () => {
 
     beforeEach(() => {
         jest.clearAllMocks();
+        mockIsMessageProcessed.mockResolvedValue(false);
         botController = new BotController();
         mockRes = { sendStatus: jest.fn(), status: jest.fn().mockReturnThis(), send: jest.fn() };
     });
@@ -105,6 +111,31 @@ describe('BotController', () => {
             expect(mockEnqueueMessage).not.toHaveBeenCalled();
         });
 
+        it('should enqueue every message in a two-message batched payload', async () => {
+            const payload = createWebhookPayload('SEND 10 @jane');
+            (payload.entry[0].changes[0].value as any).messages.push({
+                from: '12345',
+                id: 'wamid.456',
+                text: { body: 'BALANCE' },
+            });
+            mockReq = { body: payload };
+
+            await botController.handleMessage(mockReq as Request, mockRes as Response);
+
+            expect(mockEnqueueMessage).toHaveBeenCalledTimes(2);
+            expect(mockEnqueueMessage).toHaveBeenNthCalledWith(1, {
+                from: '12345',
+                msgBody: 'SEND 10 @jane',
+                whatsappMessageId: 'wamid.123',
+            });
+            expect(mockEnqueueMessage).toHaveBeenNthCalledWith(2, {
+                from: '12345',
+                msgBody: 'BALANCE',
+                whatsappMessageId: 'wamid.456',
+            });
+            expect(mockRes.sendStatus).toHaveBeenCalledWith(200);
+        });
+
         it('should return 200 even without messages array', async () => {
             mockReq = { body: { object: 'whatsapp_business_account', entry: [{ changes: [{ value: {} }] }] } };
             await botController.handleMessage(mockReq as Request, mockRes as Response);
@@ -136,6 +167,17 @@ describe('BotController', () => {
             await botController.handleMessage(mockReq as Request, mockRes as Response);
             expect(mockRes.sendStatus).toHaveBeenCalledWith(500);
             expect(mockEnqueueMessage).toHaveBeenCalledTimes(1);
+        });
+
+        it('should not process a message that was already handled on redelivery', async () => {
+            mockIsMessageProcessed.mockResolvedValueOnce(true);
+            mockReq = { body: createWebhookPayload('SEND 10 @jane') };
+
+            await botController.handleMessage(mockReq as Request, mockRes as Response);
+
+            expect(mockIsMessageProcessed).toHaveBeenCalledWith('wamid.123');
+            expect(mockEnqueueMessage).not.toHaveBeenCalled();
+            expect(mockRes.sendStatus).toHaveBeenCalledWith(200);
         });
     });
 
@@ -195,6 +237,24 @@ describe('BotController', () => {
             } finally {
                 jest.useRealTimers();
             }
+        });
+
+        it('returns 500 when any message in a batch fails to enqueue', async () => {
+            const payload = createWebhookPayload('SEND 10 @jane');
+            (payload.entry[0].changes[0].value as any).messages.push({
+                from: '12345',
+                id: 'wamid.456',
+                text: { body: 'BALANCE' },
+            });
+            mockEnqueueMessage
+                .mockResolvedValueOnce({ id: 'job-1' })
+                .mockRejectedValueOnce(new Error('redis down'));
+            mockReq = { body: payload };
+
+            await botController.handleMessage(mockReq as Request, mockRes as Response);
+
+            expect(mockEnqueueMessage).toHaveBeenCalledTimes(2);
+            expect(mockRes.sendStatus).toHaveBeenCalledWith(500);
         });
     });
 });

@@ -47,6 +47,35 @@ export function classifyCommand(text: string): CommandTier {
 }
 
 /**
+ * Extracts every text message carried by a WhatsApp webhook payload.
+ * The envelope is an array at both the entry and changes levels, and each
+ * value may carry several messages, so all of them are collected.
+ */
+export function extractAllMessageDetails(body: any): Array<{ phoneNumber: string | null; commandText: string | null; messageId: string | null }> {
+    const results: Array<{ phoneNumber: string | null; commandText: string | null; messageId: string | null }> = [];
+    const entries = Array.isArray(body?.entry) ? body.entry : [];
+
+    for (const entry of entries) {
+        const changes = Array.isArray(entry?.changes) ? entry.changes : [];
+        for (const change of changes) {
+            const messages = Array.isArray(change?.value?.messages) ? change.value.messages : [];
+            for (const message of messages) {
+                const from = message?.from;
+                const msgBody = message?.text?.body;
+                const id = message?.id;
+                results.push({
+                    phoneNumber: typeof from === 'string' ? from : null,
+                    commandText: typeof msgBody === 'string' ? msgBody : null,
+                    messageId: typeof id === 'string' ? id : null,
+                });
+            }
+        }
+    }
+
+    return results;
+}
+
+/**
  * Minimally parses request to extract the WhatsApp message body and sender.
  * Useful if express.json() is not run yet, or as a defensive guard.
  */
@@ -60,13 +89,12 @@ export function extractMessageDetails(req: any): { phoneNumber: string | null; c
         }
     }
 
-    const message = body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
-    const from = message?.from;
-    const msgBody = message?.text?.body;
+    const all = extractAllMessageDetails(body);
+    const first = all[0];
 
     return {
-        phoneNumber: typeof from === 'string' ? from : null,
-        commandText: typeof msgBody === 'string' ? msgBody : null,
+        phoneNumber: first?.phoneNumber ?? null,
+        commandText: first?.commandText ?? null,
     };
 }
 
@@ -252,3 +280,36 @@ export const commandRateLimitMiddleware = async (
 
     next();
 };
+
+/**
+ * Applies the rate-limit accounting to every message in a batched payload so
+ * classification and abuse history see the same set the bot controller does.
+ * Returns the first message that exceeded its limit, if any.
+ */
+export async function checkBatchedMessages(
+    body: any,
+    windowMs: number = 60 * 1000
+): Promise<{ blocked: boolean; phoneNumber: string | null; commandText: string | null; remainingSeconds: number }> {
+    const messages = extractAllMessageDetails(body);
+
+    for (const { phoneNumber, commandText } of messages) {
+        if (!phoneNumber) continue;
+
+        const tier = commandText ? classifyCommand(commandText) : 'GENERAL';
+        const rateLimitKey = commandText ? `rate_limit:${tier}:${phoneNumber}` : `rate_limit:${phoneNumber}`;
+        const limit = tier === 'FINANCIAL' ? 5 : tier === 'READ' ? 10 : 30;
+
+        const { allowed, remainingSeconds } = await checkLimit(rateLimitKey, limit, windowMs);
+        if (!allowed) {
+            return { blocked: true, phoneNumber, commandText, remainingSeconds };
+        }
+
+        if (commandText) {
+            abuseDetectionService.recordCommand(phoneNumber, commandText).catch((err) => {
+                console.error('Failed to record command in abuse detection service:', err);
+            });
+        }
+    }
+
+    return { blocked: false, phoneNumber: null, commandText: null, remainingSeconds: 0 };
+}
