@@ -38,19 +38,26 @@ export async function initI18n(): Promise<void> {
     try {
         const enPath = path.join(localesDir, 'en.json');
         const enData = JSON.parse(fs.readFileSync(enPath, 'utf8'));
-        const checkKeys = (obj: any, prefix = '') => {
-            const keys: string[] = [];
+        const flatten = (obj: any, prefix = ''): Record<string, string> => {
+            const out: Record<string, string> = {};
             for (const k in obj) {
                 if (typeof obj[k] === 'object' && obj[k] !== null) {
-                    keys.push(...checkKeys(obj[k], `${prefix}${k}.`));
+                    Object.assign(out, flatten(obj[k], `${prefix}${k}.`));
                 } else {
-                    keys.push(`${prefix}${k}`);
+                    out[`${prefix}${k}`] = String(obj[k]);
                 }
             }
-            return keys;
+            return out;
         };
-        const enKeys = checkKeys(enData);
-        
+        const extractPlaceholders = (value: string): string[] => {
+            const matches = value.match(/\{\{\s*([^}\s]+)\s*\}\}/g) || [];
+            return matches
+                .map(m => m.replace(/[{}\s]/g, ''))
+                .sort();
+        };
+        const enFlat = flatten(enData);
+        const enKeys = Object.keys(enFlat);
+
         for (const lang of SUPPORTED_LANGUAGES) {
             if (lang === 'en') continue;
             try {
@@ -60,10 +67,29 @@ export async function initI18n(): Promise<void> {
                     continue;
                 }
                 const langData = JSON.parse(fs.readFileSync(langPath, 'utf8'));
-                const langKeys = new Set(checkKeys(langData));
+                const langFlat = flatten(langData);
+                const langKeys = new Set(Object.keys(langFlat));
                 for (const key of enKeys) {
                     if (!langKeys.has(key)) {
                         console.warn(`[i18n] Missing key '${key}' in ${lang}.json`);
+                    }
+                }
+                for (const key of langKeys) {
+                    if (!(key in enFlat)) {
+                        console.warn(`[i18n] Extra key '${key}' in ${lang}.json`);
+                    }
+                }
+                for (const key of enKeys) {
+                    if (!langKeys.has(key)) continue;
+                    const enPlaceholders = extractPlaceholders(enFlat[key]);
+                    const langPlaceholders = extractPlaceholders(langFlat[key]);
+                    if (enPlaceholders.join(',') !== langPlaceholders.join(',')) {
+                        const missing = enPlaceholders.filter(p => !langPlaceholders.includes(p));
+                        const extra = langPlaceholders.filter(p => !enPlaceholders.includes(p));
+                        const parts: string[] = [];
+                        if (missing.length) parts.push(`missing ${missing.map(p => `{{${p}}}`).join(', ')}`);
+                        if (extra.length) parts.push(`extra ${extra.map(p => `{{${p}}}`).join(', ')}`);
+                        console.warn(`[i18n] Placeholder mismatch for key '${key}' in ${lang}.json: ${parts.join('; ')}`);
                     }
                 }
             } catch (err) {
