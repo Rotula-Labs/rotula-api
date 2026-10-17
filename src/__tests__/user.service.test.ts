@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { StellarService, InsufficientReserveError } from '../services/stellar.service';
 import { WhatsAppService } from '../services/whatsapp.service';
 import { config } from '../config/env';
+import { observability } from '../services/observability.service';
 
 // Mock the modules
 jest.mock('../lib/redis', () => ({
@@ -48,6 +49,13 @@ jest.mock('../services/whatsapp.service', () => {
     return { WhatsAppService: jest.fn(() => mWhatsAppService) };
 });
 
+jest.mock('../services/observability.service', () => ({
+    observability: {
+        recordError: jest.fn(),
+        recordEvent: jest.fn(),
+    },
+}));
+
 jest.mock('../utils/encryption.util', () => ({
     decrypt: jest.fn().mockReturnValue('S_MOCK_SECRET'),
 }));
@@ -72,6 +80,7 @@ describe('UserService', () => {
         prismaClientMock = new PrismaClient();
         stellarServiceMock = new StellarService();
         whatsappServiceMock = new WhatsAppService();
+        (observability.recordError as jest.Mock).mockClear();
     });
 
     afterAll(() => {
@@ -112,6 +121,7 @@ describe('UserService', () => {
                     phoneNumber: '0987654321',
                     language: 'en',
                     stellarWallet: expectedWallet,
+                    fundingStatus: 'funded',
                 },
             });
             expect(result).toEqual(createdUser);
@@ -126,14 +136,21 @@ describe('UserService', () => {
                 iv: 'IV',
                 authTag: 'TAG'
             });
-            const createdUser = { id: '3', phoneNumber: '1111111111', stellarWallet: expectedWallet };
+            const createdUser = { id: '3', phoneNumber: '1111111111', stellarWallet: expectedWallet, fundingStatus: 'unfunded' };
             prismaClientMock.user.create.mockResolvedValueOnce(createdUser);
 
             const result = await userService.getOrCreateUser('1111111111');
 
             expect(stellarServiceMock.fundTestnetAccount).toHaveBeenCalledWith('G_MOCK_PUBLIC_KEY');
-            expect(prismaClientMock.user.create).toHaveBeenCalled();
-            expect(result.stellarWallet).toBe(expectedWallet);
+            expect(prismaClientMock.user.create).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({
+                        fundingStatus: 'unfunded',
+                    }),
+                })
+            );
+            expect(observability.recordError).toHaveBeenCalledTimes(1);
+            expect(result.fundingStatus).toBe('unfunded');
         });
 
         it('should skip trustline creation when USDC_ISSUER_PUBLIC_KEY is not configured', async () => {
@@ -144,6 +161,7 @@ describe('UserService', () => {
             await userService.getOrCreateUser('2222222222');
 
             expect(stellarServiceMock.createTrustline).not.toHaveBeenCalled();
+            expect(observability.recordError).not.toHaveBeenCalled();
         });
 
         it('should establish a USDC trustline when USDC_ISSUER_PUBLIC_KEY is configured', async () => {

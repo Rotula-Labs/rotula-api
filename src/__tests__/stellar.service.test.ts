@@ -129,22 +129,23 @@ describe('StellarService', () => {
             stellarService = new StellarService();
             const axios = require('axios');
 
-            await stellarService.fundTestnetAccount('G_MOCK');
+            const result = await stellarService.fundTestnetAccount('G_MOCK');
 
             expect(axios.get).not.toHaveBeenCalled();
+            expect(result).toEqual({ funded: false, skipped: true, network: 'PUBLIC' });
         });
 
-        it('should log and swallow friendbot failures', async () => {
+        it('should throw when friendbot funding fails', async () => {
             const axios = require('axios');
             axios.get.mockResolvedValueOnce({ status: 500 });
-            const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
-            
-            try {
-                await stellarService.fundTestnetAccount('G_MOCK');
-                expect(consoleSpy).toHaveBeenCalledWith('Friendbot funding failed:', expect.any(Error));
-            } finally {
-                consoleSpy.mockRestore();
-            }
+
+            await expect(stellarService.fundTestnetAccount('G_MOCK')).rejects.toThrow(/Friendbot funding failed/);
+        });
+
+        it('should return a funded record on success', async () => {
+            const result = await stellarService.fundTestnetAccount('G_MOCK');
+
+            expect(result).toEqual({ funded: true, skipped: false, network: 'TESTNET' });
         });
     });
 
