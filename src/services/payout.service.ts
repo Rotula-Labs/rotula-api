@@ -6,6 +6,15 @@ import { enqueueCycleEnd } from '../queue/contribution-scheduler.queue';
 
 const prisma = new PrismaClient();
 
+/**
+ * WhatsApp only permits free-form messages within a customer service window
+ * that opens when the user last wrote in. Notifications sent by background
+ * workers (payout fan-out, reminders, low-reserve notices) have no relation to
+ * the user's last message and frequently fall outside this window, so they
+ * must go out as an approved template instead.
+ */
+export const WHATSAPP_CUSTOMER_SERVICE_WINDOW_MS = 24 * 60 * 60 * 1000;
+
 export class PayoutOrderLockedError extends Error {
     constructor() {
         super('Payout order is locked for this cycle — the first contribution has already been recorded.');
@@ -169,7 +178,7 @@ export class PayoutService {
         for (const userId of status.missingUserIds) {
             const user: any = membersById.get(userId);
             if (!user?.phoneNumber) continue;
-            await this.whatsappService.sendMessage(
+            await this.sendNotification(
                 user.phoneNumber,
                 `⚠️ Final warning: you haven't contributed to "${status.group.name}" for this cycle yet. Please contribute before the group creator finalizes the payout.`,
             );
@@ -402,7 +411,7 @@ export class PayoutService {
 
         const creator = status.group.members.find((m: any) => m.role === 'CREATOR');
         if (creator?.user?.phoneNumber) {
-            await this.whatsappService.sendMessage(
+            await this.sendNotification(
                 creator.user.phoneNumber,
                 `⚠️ Not everyone has contributed to "${status.group.name}" this cycle. Reply with:\n` +
                 `PAYOUT WAIT — extend the deadline by 24h\n` +
@@ -412,12 +421,45 @@ export class PayoutService {
         }
     }
 
+    /**
+     * Sends a notification to a user, choosing between the free-form path and
+     * an approved template based on whether the WhatsApp customer service
+     * window is still open. The window is considered open when the user has
+     * written in within WHATSAPP_CUSTOMER_SERVICE_WINDOW_MS.
+     */
+    private async sendNotification(phoneNumber: string, message: string, templateName?: string): Promise<void> {
+        const lastInboundAt = await this.getLastInboundAt(phoneNumber);
+        const windowOpen =
+            lastInboundAt !== null &&
+            Date.now() - lastInboundAt.getTime() < WHATSAPP_CUSTOMER_SERVICE_WINDOW_MS;
+
+        if (windowOpen) {
+            await this.whatsappService.sendMessage(phoneNumber, message);
+            return;
+        }
+
+        const template = templateName ?? config.WHATSAPP_NOTIFICATION_TEMPLATE;
+        await this.whatsappService.sendTemplateMessage(phoneNumber, template, [message]);
+    }
+
+    /**
+     * Looks up the last verified inbound message time for a phone number. The
+     * webhook path records this value; here we only read it.
+     */
+    private async getLastInboundAt(phoneNumber: string): Promise<Date | null> {
+        const record = await (prisma as any).whatsAppInbound?.findUnique?.({
+            where: { phoneNumber },
+            select: { lastInboundAt: true },
+        });
+        return record?.lastInboundAt ?? null;
+    }
+
     private async notifyAllMembers(groupId: string, message: string): Promise<void> {
         const members = await prisma.groupMember.findMany({ where: { groupId }, include: { user: true } });
         for (const member of members) {
             if (!member.user?.phoneNumber) continue;
             try {
-                await this.whatsappService.sendMessage(member.user.phoneNumber, message);
+                await this.sendNotification(member.user.phoneNumber, message);
             } catch (e) {
                 console.error(`Failed to notify ${member.user.phoneNumber}`, e);
             }

@@ -2,6 +2,7 @@ import type { Request, Response } from 'express';
 import { config } from '../config/env';
 import { enqueueMessage, type MessageJobData } from '../queue/message.queue';
 import { observabilityService } from '../services/observability.service';
+import { whatsappService } from '../services/whatsapp.service';
 
 /**
  * Hard upper bound on how long we wait for a message to be enqueued before
@@ -121,6 +122,15 @@ export class BotController {
         }
 
         observabilityService.logInfo('Received webhook message');
+
+        // Record the inbound timestamp so outbound notifications can decide
+        // whether the 24-hour customer service window is open. This is the
+        // verified webhook path, so it is the authoritative source of truth.
+        whatsappService.recordInboundMessage(message.from).catch((err) => {
+            observabilityService.alertCriticalFailure('Failed to record inbound message time', err, {
+                from: message.from,
+            });
+        });
 
         try {
             await this.enqueueWithTimeout({
