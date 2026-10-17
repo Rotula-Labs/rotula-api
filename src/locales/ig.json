@@ -85,7 +85,8 @@
     "invalid_format": "❌ Ụdị ọnụọgụ adịghị mma. Biko tinye nọmba karịrị efu (dịka, 10 ma ọ bụ 10.50).",
     "zero_amount": "❌ Ọnụọgụ ga-akarịrị efu.",
     "precision_exceeded": "❌ Ọnụọgụ enweghị ike inwe karịa mkpụrụ 7 mgbe akara iri gasịrị.",
-    "exceeds_max": "❌ Ọnụọgụ karịrị nke kachasị anabata (1,000,000 XLM)."
+    "exceeds_max": "❌ Ọnụọgụ karịrị nke kachasị anabata (1,000,000 XLM).",
+    "positive_required": "❌ Ọnụọgụ ntinye ụtụ ga-abụ nọmba dị mma karịrị efu."
   },
   "withdraw": {
     "usage": "Ojiji: WITHDRAW <ọnụọgụ>",

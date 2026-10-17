@@ -56,21 +56,7 @@ export class MessageProcessor {
      * - Must not exceed 1,000,000 XLM (guards against fat-finger errors)
      */
     private validateAmount(amountStr: string): string | null {
-        if (!/^\d+(\.\d+)?$/.test(amountStr)) {
-            return 'validation.invalid_format';
-        }
-        const value = parseFloat(amountStr);
-        if (value <= 0) {
-            return 'validation.zero_amount';
-        }
-        const decimalPart = amountStr.includes('.') ? amountStr.split('.')[1] : '';
-        if (decimalPart.length > 7) {
-            return 'validation.precision_exceeded';
-        }
-        if (value > 1_000_000) {
-            return 'validation.exceeds_max';
-        }
-        return null;
+        return GroupService.validateAmount(amountStr);
     }
 
     public async processCommand(from: string, text: string, locale?: string) {

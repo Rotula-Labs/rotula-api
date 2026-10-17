@@ -20,6 +20,7 @@ interface WhatsAppContact {
     wa_id?: string;
     profile?: {
         name?: string;
+        locale?: string;
     };
 }
 
@@ -93,12 +94,11 @@ export class BotController {
             return null;
         }
 
-        // Try to extract locale if available in contacts metadata for this sender (e.g., from WhatsApp profile)
-        let locale: string | undefined;
+        // Carry the sender's locale through the queue so every downstream
+        // rejection (including amount validation) can be rendered in the
+        // user's language rather than as English prose.
         const contact = contacts?.find(c => c.wa_id === from);
-        if (contact && (contact as any).profile?.locale) {
-            locale = (contact as any).profile.locale;
-        }
+        const locale = contact?.profile?.locale;
 
         return { from, msgBody, whatsappMessageId: id, locale };
     }

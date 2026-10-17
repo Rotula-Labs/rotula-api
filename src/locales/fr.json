@@ -75,6 +75,7 @@
   "validation": {
     "invalid_format": "❌ Format de montant invalide. Veuillez entrer un nombre positif (par ex. 10 ou 10.50).",
     "zero_amount": "❌ Le montant doit être supérieur à zéro.",
+    "not_positive": "❌ Le montant doit être un nombre positif supérieur à zéro.",
     "precision_exceeded": "❌ Le montant ne peut pas avoir plus de 7 décimales.",
     "exceeds_max": "❌ Le montant dépasse le maximum autorisé (1 000 000 XLM)."
   },
