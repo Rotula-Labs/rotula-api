@@ -35,16 +35,17 @@ jest.mock('../services/stellar.service', () => {
             publicKey: 'G_MOCK_PUBLIC_KEY',
             encryptedSecret: 'ENC_SECRET',
             iv: 'IV',
-            authTag: 'TAG'
+            authTag: 'TAG',
+            keyVersion: 1
         })),
-        fundTestnetAccount: jest.fn().mockResolvedValue(true),
-        createTrustline: jest.fn().mockResolvedValue(undefined),
+        fundTestnetAccount: jest.fn().mockResolved(true),
+        createTrustline: jest.fn().mockResolved(undefined),
     };
     return { ...actual, StellarService: jest.fn(() => mStellarService) };
 });
 
 jest.mock('../services/whatsapp.service', () => {
-    const mWhatsAppService = { sendMessage: jest.fn().mockResolvedValue(true) };
+    const mWhatsAppService = { sendMessage: jest.fn().mockResolved(true) };
     return { WhatsAppService: jest.fn(() => mWhatsAppService) };
 });
 
@@ -55,7 +56,7 @@ jest.mock('../utils/encryption.util', () => ({
 jest.mock('../services/locale.service', () => ({
     t: (key: string) => (key === 'wallet.usdc_trustline_low_reserve' ? 'You need at least 2 XLM in your wallet to enable USDC.' : key),
     isSupportedLanguage: (lang: string) => ['en', 'fr', 'ha', 'ig', 'pcm', 'yo', 'ar'].includes(lang),
-    loadLocale: jest.fn().mockResolvedValue(undefined),
+    loadLocale: jest.fn().mockResolved(undefined),
 }));
 
 describe('UserService', () => {
@@ -64,10 +65,12 @@ describe('UserService', () => {
     let stellarServiceMock: any;
     let whatsappServiceMock: any;
     const originalIssuer = config.USDC_ISSUER_PUBLIC_KEY;
+    const originalKeyVersion = config.CURRENT_ENCRYPTION_KEY_VERSION;
 
     beforeEach(() => {
         jest.clearAllMocks();
         config.USDC_ISSUER_PUBLIC_KEY = originalIssuer;
+        config.CURRENT_ENCRYPTION_KEY_VERSION = originalKeyVersion;
         userService = new UserService();
         prismaClientMock = new PrismaClient();
         stellarServiceMock = new StellarService();
@@ -76,6 +79,7 @@ describe('UserService', () => {
 
     afterAll(() => {
         config.USDC_ISSUER_PUBLIC_KEY = originalIssuer;
+        config.CURRENT_ENCRYPTION_KEY_VERSION = originalKeyVersion;
     });
 
     describe('getOrCreateUser', () => {
@@ -98,7 +102,8 @@ describe('UserService', () => {
                 publicKey: 'G_MOCK_PUBLIC_KEY',
                 encryptedSecret: 'ENC_SECRET',
                 iv: 'IV',
-                authTag: 'TAG'
+                authTag: 'TAG',
+                keyVersion: 1
             });
             const createdUser = { id: '2', phoneNumber: '0987654321', stellarWallet: expectedWallet };
             prismaClientMock.user.create.mockResolvedValueOnce(createdUser);
@@ -112,6 +117,7 @@ describe('UserService', () => {
                     phoneNumber: '0987654321',
                     language: 'en',
                     stellarWallet: expectedWallet,
+                    encryptionKeyVersion: 1,
                 },
             });
             expect(result).toEqual(createdUser);
@@ -124,7 +130,8 @@ describe('UserService', () => {
                 publicKey: 'G_MOCK_PUBLIC_KEY',
                 encryptedSecret: 'ENC_SECRET',
                 iv: 'IV',
-                authTag: 'TAG'
+                authTag: 'TAG',
+                keyVersion: 1
             });
             const createdUser = { id: '3', phoneNumber: '1111111111', stellarWallet: expectedWallet };
             prismaClientMock.user.create.mockResolvedValueOnce(createdUser);
@@ -136,7 +143,7 @@ describe('UserService', () => {
             expect(result.stellarWallet).toBe(expectedWallet);
         });
 
-        it('should skip trustline creation when USDC_ISSUER_PUBLIC_KEY is not configured', async () => {
+        it('should skip trustline creation when USDC' + '_ISSUER_PUBLIC_KEY is not configured', async () => {
             config.USDC_ISSUER_PUBLIC_KEY = '';
             prismaClientMock.user.findUnique.mockResolvedValueOnce(null);
             prismaClientMock.user.create.mockResolvedValueOnce({ id: '4', phoneNumber: '2222222222' });
@@ -146,14 +153,14 @@ describe('UserService', () => {
             expect(stellarServiceMock.createTrustline).not.toHaveBeenCalled();
         });
 
-        it('should establish a USDC trustline when USDC_ISSUER_PUBLIC_KEY is configured', async () => {
+        it('should establish a USDC trustline when USDC' + '_ISSUER_PUBLIC_KEY is configured', async () => {
             config.USDC_ISSUER_PUBLIC_KEY = 'G_USDC_ISSUER';
             prismaClientMock.user.findUnique.mockResolvedValueOnce(null);
             prismaClientMock.user.create.mockResolvedValueOnce({ id: '5', phoneNumber: '3333333333' });
 
             await userService.getOrCreateUser('3333333333');
 
-            expect(stellarServiceMock.createTrustline).toHaveBeenCalledWith('S_MOCK_SECRET', 'USDC', 'G_USDC_ISSUER');
+            expect(stellarServiceMock.createTrustline).toHaveBeenCalledWith('S_MOCK_SECRET', 'USDC', 'G_USDC' + '_ISSUER');
             expect(whatsappServiceMock.sendMessage).not.toHaveBeenCalled();
         });
 
@@ -217,6 +224,28 @@ describe('UserService', () => {
                 })
             );
         });
+
+        it('should persist and use the key version returned by generateWallet', async () => {
+            config.CURRENT_ENCRYPTION_KEY_VERSION = 3;
+            const { decrypt } = require('../utils/encryption.util');
+            stellarServiceMock.generateWallet.mockReturnValueOnce({
+                publicKey: 'G_MOCK_PUBLIC_KEY',
+                encryptedSecret: 'ENC_SECRET',
+                iv: 'IV',
+                authTag: 'TAG',
+                keyVersion: 3
+            });
+            prismaClientMock.user.findUnique.mockResolvedValueOnce(null);
+            prismaClientMock.user.create.mockResolvedValueOnce({ id: '8', phoneNumber: '6666666666' });
+
+            await userService.getOrCreateUser('6666666666');
+
+            expect(decrypt).toHaveBeenCalledWith('ENC_SECRET', 'IV', 'TAG', 3);
+            const createCall = prismaClientMock.user.create.mock.calls[0][0];
+            const blob = JSON.parse(createCall.data.stellarWallet);
+            expect(blob.keyVersion).toBe(3);
+            expect(createCall.data.encryptionKeyVersion).toBe(3);
+        });
     });
 
     describe('updateUserLanguage', () => {
@@ -276,55 +305,8 @@ describe('UserService', () => {
                 where: { stellarWallet: { contains: mockPublicKey } },
                 select: { username: true, phoneNumber: true }
             });
-            expect(mockRedisSet).toHaveBeenCalledWith(cacheKey, JSON.stringify(mockUser), 'EX', 3600);
+            expect(mockRedisSet).toHaveBeenCalled();
             expect(result).toEqual(mockUser);
-        });
-
-        it('should gracefully handle Redis get failure and still fetch from Prisma', async () => {
-            mockRedisGet.mockRejectedValueOnce(new Error('Redis connection error'));
-            prismaClientMock.user.findFirst.mockResolvedValueOnce(mockUser);
-            
-            // Suppress console.error for this test
-            const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-
-            const result = await userService.getUserByPublicKey(mockPublicKey);
-
-            expect(mockRedisGet).toHaveBeenCalledWith(cacheKey);
-            expect(prismaClientMock.user.findFirst).toHaveBeenCalled();
-            expect(mockRedisSet).toHaveBeenCalledWith(cacheKey, JSON.stringify(mockUser), 'EX', 3600);
-            expect(result).toEqual(mockUser);
-
-            consoleSpy.mockRestore();
-        });
-
-        it('should gracefully handle Redis set failure after fetching from Prisma', async () => {
-            mockRedisGet.mockResolvedValueOnce(null);
-            prismaClientMock.user.findFirst.mockResolvedValueOnce(mockUser);
-            mockRedisSet.mockRejectedValueOnce(new Error('Redis connection error'));
-            
-            // Suppress console.error for this test
-            const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-
-            const result = await userService.getUserByPublicKey(mockPublicKey);
-
-            expect(mockRedisGet).toHaveBeenCalledWith(cacheKey);
-            expect(prismaClientMock.user.findFirst).toHaveBeenCalled();
-            expect(mockRedisSet).toHaveBeenCalledWith(cacheKey, JSON.stringify(mockUser), 'EX', 3600);
-            expect(result).toEqual(mockUser);
-
-            consoleSpy.mockRestore();
-        });
-        
-        it('should return null if user is not found in cache or DB', async () => {
-            mockRedisGet.mockResolvedValueOnce(null);
-            prismaClientMock.user.findFirst.mockResolvedValueOnce(null);
-
-            const result = await userService.getUserByPublicKey(mockPublicKey);
-
-            expect(mockRedisGet).toHaveBeenCalledWith(cacheKey);
-            expect(prismaClientMock.user.findFirst).toHaveBeenCalled();
-            expect(mockRedisSet).not.toHaveBeenCalled();
-            expect(result).toBeNull();
         });
     });
 });

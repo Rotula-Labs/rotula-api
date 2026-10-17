@@ -33,7 +33,7 @@ export class UserService {
                     // Use the newly generated wallet, not user.stellarWallet (user is null here)
                     let secretBuffer: Buffer | null = null;
                     try {
-                        secretBuffer = decrypt(wallet.encryptedSecret, wallet.iv, wallet.authTag);
+                        secretBuffer = decrypt(wallet.encryptedSecret, wallet.iv, wallet.authTag, wallet.keyVersion);
                         registerSecret(secretBuffer);
                         await stellarService.createTrustline(secretBuffer, 'USDC', config.USDC_ISSUER_PUBLIC_KEY);
                         // No user.id yet since user is not created - skip audit log for this initial trustline
@@ -57,6 +57,7 @@ export class UserService {
                 encryptedSecret: wallet.encryptedSecret,
                 iv: wallet.iv,
                 authTag: wallet.authTag,
+                keyVersion: wallet.keyVersion,
             });
 
             const defaultLang = locale && isSupportedLanguage(locale) ? locale : 'en';
@@ -65,6 +66,7 @@ export class UserService {
                 data: {
                     phoneNumber,
                     stellarWallet: walletData,
+                    encryptionKeyVersion: wallet.keyVersion,
                     language: defaultLang,
                 }
             });
@@ -108,7 +110,7 @@ export class UserService {
 
         if (user) {
             try {
-                await redisClient.set(cacheKey, JSON.stringify(user), 'EX', 3600); // 1 hour TTL
+                await redisClient.set(cacheKey, JSON.stringify(user), 'EX', 3600); // 1 hour TVL
             } catch (e) {
                 console.error('Redis set error:', e);
             }
