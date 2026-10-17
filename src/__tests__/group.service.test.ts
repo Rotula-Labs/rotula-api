@@ -13,7 +13,20 @@ jest.mock('@prisma/client', () => {
         contribution: {
             create: jest.fn(),
             findMany: jest.fn(),
-        }
+        },
+        payout: {
+            create: jest.fn(),
+            findMany: jest.fn(),
+        },
+        payoutOrderLog: {
+            create: jest.fn(),
+            findMany: jest.fn(),
+        },
+        memberExitLog: {
+            create: jest.fn(),
+            findMany: jest.fn(),
+        },
+        $transaction: jest.fn(),
     };
     return { PrismaClient: jest.fn(() => mPrismaClient) };
 });
@@ -252,6 +265,33 @@ describe('GroupService', () => {
                 where: { userId: 'u-new' }
             });
             expect(result).toEqual([]);
+        });
+    });
+
+    describe('group relation on-delete behaviour', () => {
+        it('cascades operational rows (members, payouts) when the group is deleted', async () => {
+            prismaClientMock.savingsGroup.delete = jest.fn().mockResolvedValue({ id: 'g1' });
+            prismaClientMock.groupMember.findMany.mockResolvedValueOnce([]);
+            prismaClientMock.payout.findMany.mockResolvedValueOnce([]);
+
+            await prismaClientMock.savingsGroup.delete({ where: { id: 'g1' } });
+
+            expect(prismaClientMock.savingsGroup.delete).toHaveBeenCalledWith({ where: { id: 'g1' } });
+            expect(await prismaClientMock.groupMember.findMany({ where: { groupId: 'g1' } })).toEqual([]);
+            expect(await prismaClientMock.payout.findMany({ where: { groupId: 'g1' } })).toEqual([]);
+        });
+
+        it('preserves audit records (payout order logs, member exit logs) after the group is deleted', async () => {
+            const payoutLog = { id: 'pol1', groupId: 'g1', action: 'CREATED' };
+            const exitLog = { id: 'mel1', groupId: 'g1', reason: 'LEFT' };
+            prismaClientMock.savingsGroup.delete = jest.fn().mockResolvedValue({ id: 'g1' });
+            prismaClientMock.payoutOrderLog.findMany.mockResolvedValueOnce([payoutLog]);
+            prismaClientMock.memberExitLog.findMany.mockResolvedValueOnce([exitLog]);
+
+            await prismaClientMock.savingsGroup.delete({ where: { id: 'g1' } });
+
+            expect(await prismaClientMock.payoutOrderLog.findMany({ where: { groupId: 'g1' } })).toEqual([payoutLog]);
+            expect(await prismaClientMock.memberExitLog.findMany({ where: { groupId: 'g1' } })).toEqual([exitLog]);
         });
     });
 
