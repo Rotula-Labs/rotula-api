@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import { config } from '../config/env';
 import { enqueueMessage, type MessageJobData } from '../queue/message.queue';
+import { markWebhookSeen } from '../middleware/webhook-signature.middleware';
 import { observabilityService } from '../services/observability.service';
 
 /**
@@ -140,6 +141,12 @@ export class BotController {
             res.sendStatus(500);
             return;
         }
+
+        // The replay marker is only claimed once the message is safely
+        // enqueued. If enqueueing failed above we returned 500 without
+        // touching the marker, so WhatsApp's retry of the same message id
+        // will be accepted instead of being rejected as a duplicate.
+        await markWebhookSeen(message.whatsappMessageId);
 
         res.sendStatus(200);
     }
