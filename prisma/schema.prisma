@@ -68,7 +68,7 @@ model GroupMember {
   id       String       @id @default(uuid())
   user     User         @relation(fields: [userId], references: [id])
   userId   String
-  group    SavingsGroup @relation(fields: [groupId], references: [id])
+  group    SavingsGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
   groupId  String
   role     String       @default("MEMBER") // e.g., "CREATOR", "MEMBER"
   // ACTIVE or LEFT. Soft-delete marker for voluntary exit / kick — the row is
@@ -98,7 +98,7 @@ model Contribution {
 
 model Payout {
   id              String       @id @default(uuid())
-  group           SavingsGroup @relation(fields: [groupId], references: [id])
+  group           SavingsGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
   groupId         String
   recipientId     String
   amount          Decimal
@@ -113,7 +113,7 @@ model Payout {
 
 model PayoutOrderLog {
   id            String       @id @default(uuid())
-  group         SavingsGroup @relation(fields: [groupId], references: [id])
+  group         SavingsGroup @relation(fields: [groupId], references: [id], onDelete: Restrict)
   groupId       String
   changedBy     String
   previousOrder Json?
@@ -181,7 +181,7 @@ model ReconciliationMismatch {
 /// or removal (KICK). One row per exit — never updated.
 model MemberExitLog {
   id               String       @id @default(uuid())
-  group            SavingsGroup @relation(fields: [groupId], references: [id])
+  group            SavingsGroup @relation(fields: [groupId], references: [id], onDelete: Restrict)
   groupId          String
   userId           String // the member who exited
   /// userId of who triggered the exit — the member themselves for LEAVE, the

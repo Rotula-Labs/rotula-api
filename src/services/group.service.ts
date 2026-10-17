@@ -57,10 +57,26 @@ export class GroupService {
         return group;
     }
 
+    /**
+     * Deletes a savings group and its operational children.
+     *
+     * Delete policy (declared in prisma/schema.prisma):
+     *  - GroupMember:  Cascade  — a membership has no meaning without its group.
+     *  - Payout:       Cascade  — a payout belongs to the group and is meaningless alone.
+     *  - PayoutOrderLog: SetNull — append-only audit record; survives the group (groupId nullable).
+     *  - MemberExitLog:  SetNull — append-only audit record; survives the group (groupId nullable).
+     *
+     * The audit records are detached (groupId set to null) rather than removed so the
+     * history of what happened is preserved even after the group itself is gone.
+     */
     public async deleteGroup(groupId: string) {
         const group = await prisma.savingsGroup.findUnique({ where: { id: groupId } });
         if (group) {
             await removeGroupCycle(group.id, group.contributionFrequency);
+            // Operational rows (GroupMember, Payout) are removed by the database via
+            // ON DELETE CASCADE; audit rows (PayoutOrderLog, MemberExitLog) are
+            // detached via ON DELETE SET NULL. No manual cleanup is required here —
+            // the schema is the single source of truth for the delete policy.
             await prisma.savingsGroup.delete({ where: { id: groupId } });
         }
     }
