@@ -12,7 +12,7 @@ const RETRY_DELAY_MS = 200;
 
 /** Error thrown when a payment request cannot be accepted in its current state. */
 export class PaymentRequestError extends Error {
-    constructor(public code: 'not_found' | 'not_pending' | 'expired' | 'not_responder' | 'insufficient_balance' | 'too_many_pending') {
+    constructor(public code: 'not_found' | 'not_pending' | 'expired' | 'not_responder' | 'insufficient_balance' | 'too_many_pending' | 'self_request' | 'invalid_amount') {
         super(`Payment request error: ${code}`);
         this.name = 'PaymentRequestError';
     }
@@ -34,6 +34,20 @@ export class PaymentRequestService {
     }
 
     public async createRequest(requesterId: string, responderId: string, amount: string): Promise<{ id: string; expiresAt: Date }> {
+        if (requesterId === responderId) {
+            throw new PaymentRequestError('self_request');
+        }
+
+        const parsedAmount = Number(amount);
+        if (
+            typeof amount !== 'string' ||
+            amount.trim() === '' ||
+            !Number.isFinite(parsedAmount) ||
+            parsedAmount <= 0
+        ) {
+            throw new PaymentRequestError('invalid_amount');
+        }
+
         const pendingCount = await prisma.paymentRequest.count({
             where: { requesterId, status: 'PENDING' },
         });
