@@ -1,23 +1,47 @@
 export class ObservabilityService {
+    private emit(level: string, message: string, context?: Record<string, any>): void {
+        const entry = {
+            level,
+            timestamp: new Date().toISOString(),
+            message,
+            ...(context ?? {})
+        };
+        const line = JSON.stringify(entry);
+        if (level === 'info') {
+            console.log(line);
+        } else if (level === 'warn') {
+            console.warn(line);
+        } else {
+            console.error(line);
+        }
+    }
+
     /**
      * Logs general operational info.
      */
     public logInfo(message: string, context?: Record<string, any>): void {
-        console.log(`[INFO] ${message}`, context ? JSON.stringify(context) : '');
+        this.emit('info', message, context);
     }
 
     /**
      * Logs warnings.
      */
     public logWarning(message: string, context?: Record<string, any>): void {
-        console.warn(`[WARN] ${message}`, context ? JSON.stringify(context) : '');
+        this.emit('warn', message, context);
     }
 
     /**
      * Logs non-critical errors.
      */
     public logError(message: string, error?: any, context?: Record<string, any>): void {
-        console.error(`[ERROR] ${message}`, error, context ? JSON.stringify(context) : '');
+        const errorContext: Record<string, any> = { ...(context ?? {}) };
+        if (error !== undefined) {
+            errorContext.error = error instanceof Error ? error.message : String(error);
+            if (error instanceof Error && error.stack) {
+                errorContext.stack = error.stack;
+            }
+        }
+        this.emit('error', message, errorContext);
     }
 
     /**
@@ -25,18 +49,16 @@ export class ObservabilityService {
      * This fulfills the requirement for strict alerting on critical webhook failures.
      */
     public async alertCriticalFailure(issue: string, error: any, context?: Record<string, any>): Promise<void> {
-        const payload = {
-            issue,
+        const entry = {
+            level: 'critical',
+            timestamp: new Date().toISOString(),
+            message: issue,
             error: error instanceof Error ? error.message : String(error),
-            stack: error instanceof Error ? error.stack : undefined,
-            context,
-            timestamp: new Date().toISOString()
+            ...(error instanceof Error && error.stack ? { stack: error.stack } : {}),
+            ...(context ?? {})
         };
-        
-        console.error(`[CRITICAL ALERT] Immediate action required:`, JSON.stringify(payload, null, 2));
-        
-        // In a real scenario, this would POST to Sentry, Datadog, or an incident management webhook.
-        // We decouple the alerting mechanism here so it's fully unit-testable.
+
+        console.error(JSON.stringify(entry));
     }
 }
 
