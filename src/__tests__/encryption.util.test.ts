@@ -16,6 +16,18 @@ describe('encryption.util', () => {
         config.HMAC_KEY = TEST_HMAC_KEY;
     });
 
+    describe('key validation', () => {
+        it('rejects a 64-character encryption key containing non-hex characters, naming the version', () => {
+            config.ENCRYPTION_KEYS = {
+                1: '1111111111111111111111111111111111111111111111111111111111111111',
+                2: 'zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz',
+            };
+            config.CURRENT_ENCRYPTION_KEY_VERSION = 2;
+
+            expect(() => encrypt('secret')).toThrow(/version 2/i);
+        });
+    });
+
     afterEach(() => {
         Object.assign(config, originalConfig);
     });
@@ -148,6 +160,11 @@ describe('encryption.util', () => {
         it('fails when HMAC_KEY is not set', () => {
             config.HMAC_KEY = '';
             expect(() => hmacPhone('+2348012345678')).toThrow('HMAC_KEY is not set');
+        });
+
+        it('rejects a 64-character HMAC key containing non-hex characters', () => {
+            config.HMAC_KEY = 'zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz';
+            expect(() => hmacPhone('+2348012345678')).toThrow();
         });
     });
 });
