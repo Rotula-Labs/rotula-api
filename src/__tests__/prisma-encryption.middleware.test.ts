@@ -1,6 +1,8 @@
 import { encryptField, hmacPhone, decryptField } from '../utils/encryption.util';
 import { applyEncryptionMiddleware } from '../middleware/prisma-encryption.middleware';
 import { config } from '../config/env';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 
 type Middleware = (params: any, next: (params: any) => Promise<any>) => Promise<any>;
 
@@ -209,6 +211,65 @@ describe('prisma-encryption.middleware', () => {
             );
         });
 
+        it('rewrites nested phone filters for every user relation declared in the schema', async () => {
+            const schema = readFileSync(join(__dirname, '..', '..', 'prisma', 'schema.prisma'), 'utf8');
+            const userRelations = collectUserRelations(schema);
+
+            // Sanity: the schema must actually declare user relations, otherwise
+            // this test would vacuously pass.
+            expect(userRelations.length).toBeGreaterThan(0);
+            expect(userRelations).toEqual(
+                expect.arrayContaining([
+                    { model: 'GroupMember', field: 'user' },
+                    { model: 'PaymentRequest', field: 'requester' },
+                    { model: 'PaymentRequest', field: 'responder' },
+                ])
+            );
+
+            const { middleware } = captureMiddleware();
+
+            for (const { model, field } of userRelations) {
+                next.mockClear();
+                await run(middleware, {
+                    model,
+                    action: 'findMany',
+                    args: { where: { [field]: { phoneNumber: TEST_PHONE } } },
+                    dataPath: [],
+                    runInTransaction: false,
+                });
+
+                expect(next).toHaveBeenCalledWith(
+                    expect.objectContaining({
+                        args: expect.objectContaining({
+                            where: { [field]: { phoneNumberHash: hmacPhone(TEST_PHONE) } },
+                        }),
+                    })
+                );
+            }
+        });
+
+        it('rewrites phone filters through a newly added user relation without a code change', async () => {
+            // Simulates a relation that did not exist when the middleware was
+            // written: the rewrite must be driven by the schema, not a list.
+            const { middleware } = captureMiddleware();
+
+            await run(middleware, {
+                model: 'SomeFutureModel',
+                action: 'findMany',
+                args: { where: { owner: { phoneNumber: TEST_PHONE } } },
+                dataPath: [],
+                runInTransaction: false,
+            });
+
+            expect(next).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    args: expect.objectContaining({
+                        where: { owner: { phoneNumberHash: hmacPhone(TEST_PHONE) } },
+                    }),
+                })
+            );
+        });
+
         it('passes non-phone where clauses through untouched', async () => {
             const { middleware } = captureMiddleware();
 
@@ -341,6 +402,27 @@ describe('prisma-encryption.middleware', () => {
 
 function isBlob(value: unknown): boolean {
     return typeof value === 'string' && value.startsWith('{') && value.includes('"c"');
+}
+
+// Parses prisma/schema.prisma and returns every (model, field) pair whose
+// field is a relation to the User model. This is the source of truth the
+// middleware must agree with; if a new relation is added to the schema and
+// the middleware does not rewrite it, this test fails.
+function collectUserRelations(schema: string): Array<{ model: string; field: string }> {
+    const relations: Array<{ model: string; field: string }> = [];
+    const modelRegex = /model\s+(\w+)\s*\{([\s\S]*?)\n\}/g;
+    let modelMatch: RegExpExecArray | null;
+
+    while ((modelMatch = modelRegex.exec(schema)) !== null) {
+        const [, modelName, body] = modelMatch;
+        const fieldRegex = /^\s*(\w+)\s+User(\?|\[\])?(\s|$)/gm;
+        let fieldMatch: RegExpExecArray | null;
+        while ((fieldMatch = fieldRegex.exec(body)) !== null) {
+            relations.push({ model: modelName, field: fieldMatch[1] });
+        }
+    }
+
+    return relations;
 }
 
 function decryptFieldStored(blob: string): string {

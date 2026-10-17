@@ -1,4 +1,5 @@
 import { PrismaClient } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { encryptField, decryptField, isEncryptedFieldBlob, hmacPhone } from '../utils/encryption.util';
 
 type PrismaAction =
@@ -54,21 +55,70 @@ function rewriteWhereClause(where: Record<string, any> | undefined): Record<stri
     return rewritten;
 }
 
-// Rewrites only the nested `user.phoneNumber` filter, for relation queries on
-// models like GroupMember. Top-level phone filters are handled by
-// rewriteWhereClause for the User model itself.
-function rewriteNestedUserFilter(where: Record<string, any> | undefined): Record<string, any> | undefined {
-    if (!where || typeof where !== 'object' || !looksLikePlaintextPhone(where.user?.phoneNumber)) {
+// Relation paths that lead to a User, derived from the Prisma schema at
+// startup rather than a hand-maintained list. Each entry is the field name on
+// the model that points at User (e.g. `user` on GroupMember, `requester` and
+// `responder` on PaymentRequest). A new relation added to the schema is picked
+// up automatically, so a phone filter through it is rewritten without a code
+// change.
+type UserRelationPaths = Map<string, Set<string>>;
+
+function buildUserRelationPaths(): UserRelationPaths {
+    const paths: UserRelationPaths = new Map();
+    const models = Prisma.dmmf.datamodel.models;
+
+    for (const model of models) {
+        const userRelations = new Set<string>();
+        for (const field of model.fields) {
+            if (field.kind === 'object' && field.type === 'User') {
+                userRelations.add(field.name);
+            }
+        }
+        if (userRelations.size > 0) {
+            paths.set(model.name, userRelations);
+        }
+    }
+
+    return paths;
+}
+
+const USER_RELATION_PATHS: UserRelationPaths = buildUserRelationPaths();
+
+// Rewrites every nested `<relation>.phoneNumber` filter where `<relation>` is a
+// field on the model that points at User. Driven by the schema-derived
+// USER_RELATION_PATHS map, so it covers GroupMember.user, PaymentRequest's
+// requester/responder, and any relation added later.
+function rewriteNestedUserFilter(
+    model: string | undefined,
+    where: Record<string, any> | undefined,
+): Record<string, any> | undefined {
+    if (!where || typeof where !== 'object' || !model) {
         return where;
     }
 
-    const nested = { ...where.user };
-    delete nested.phoneNumber;
+    const relations = USER_RELATION_PATHS.get(model);
+    if (!relations) {
+        return where;
+    }
 
-    return {
-        ...where,
-        user: { ...nested, phoneNumberHash: hmacPhone(where.user.phoneNumber) },
-    };
+    let rewritten: Record<string, any> | undefined;
+
+    for (const relation of relations) {
+        const nested = where[relation];
+        if (!nested || typeof nested !== 'object' || !looksLikePlaintextPhone(nested.phoneNumber)) {
+            continue;
+        }
+
+        const nestedCopy = { ...nested };
+        const plaintext = nestedCopy.phoneNumber;
+        delete nestedCopy.phoneNumber;
+        nestedCopy.phoneNumberHash = hmacPhone(plaintext);
+
+        rewritten = rewritten ?? { ...where };
+        rewritten[relation] = nestedCopy;
+    }
+
+    return rewritten ?? where;
 }
 
 // Encrypts a plaintext `data.phoneNumber` value and derives the lookup hash.
@@ -166,7 +216,7 @@ export function applyEncryptionMiddleware(prismaClient: PrismaClient): void {
 
         if (params.args?.where && action !== 'create') {
             const where = params.args.where;
-            const rewritten = isUserModel ? rewriteWhereClause(where) : rewriteNestedUserFilter(where);
+            const rewritten = isUserModel ? rewriteWhereClause(where) : rewriteNestedUserFilter(params.model, where);
             params.args = { ...params.args, where: rewritten };
         }
 
@@ -182,3 +232,5 @@ export function applyEncryptionMiddleware(prismaClient: PrismaClient): void {
         return result;
     });
 }
+
+export { buildUserRelationPaths, USER_RELATION_PATHS };
