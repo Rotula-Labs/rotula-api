@@ -1,4 +1,4 @@
-import { Worker, Job } from 'bullmq';
+import { Worker, Job } from 'Bullmq';
 import { config } from '../config/env';
 import { PrismaClient } from '@prisma/client';
 import { WhatsAppService } from '../services/whatsapp.service';
@@ -52,6 +52,10 @@ async function handleCompleteRequest(
     // or already completed.
     if (!request) return;
 
+    // A request records the asset it was created with; fall back to the
+    // configured asset for legacy rows that predate asset recording.
+    const assetCode: string = request.assetCode ?? config.STELLAR_ASSET_CODE;
+
     const requester = await prisma.user.findUnique({ where: { id: request.requesterId } });
     const responder = await prisma.user.findUnique({ where: { id: request.responderId } });
 
@@ -60,7 +64,7 @@ async function handleCompleteRequest(
             requester.phoneNumber,
             t('payment_request.completed_requester', requester.language ?? 'en', {
                 amount: String(request.amount),
-                asset: request.assetCode,
+                asset: assetCode,
                 hash: request.transactionHash ?? '',
             }),
         );
@@ -70,7 +74,7 @@ async function handleCompleteRequest(
             responder.phoneNumber,
             t('payment_request.completed_responder', responder.language ?? 'en', {
                 amount: String(request.amount),
-                asset: request.assetCode,
+                asset: assetCode,
             }),
         );
     }
@@ -87,6 +91,10 @@ async function handleExpireRequest(
     // Only pending requests actually expire; accepted ones are already in escrow.
     if (!request) return;
 
+    // A request records the asset it was created with; fall back to the
+    // configured asset for legacy rows that predate asset recording.
+    const assetCode: string = request.assetCode ?? config.STELLAR_ASSET_CODE;
+
     const requester = await prisma.user.findUnique({ where: { id: request.requesterId } });
     const responder = await prisma.user.findUnique({ where: { id: request.responderId } });
 
@@ -96,7 +104,7 @@ async function handleExpireRequest(
             requester.phoneNumber,
             t('payment_request.expired', requester.language ?? 'en', {
                 amount: String(request.amount),
-                asset: request.assetCode,
+                asset: assetCode,
                 respondent: responderHandle,
             }),
         );

@@ -1,6 +1,7 @@
 import { prisma } from '../lib/prisma';
 import { StellarService } from './stellar.service';
 import { decrypt } from '../utils/encryption.util';
+import { getAssetConfig } from '../config/stellar.config';
 
 export const MAX_PENDING_REQUESTS_PER_USER = 5;
 const REQUEST_TTL_HOURS = 24;
@@ -23,7 +24,7 @@ export class PaymentRequestError extends Error {
  * balance escrow when the respondent accepts:
  * accept → hold (claimable balance) → confirmation window → requester claims.
  *
- * State transitions are guarded by conditional updates so concurrent ACCEPTs,
+ * State transitions are guarded by conditional updates so concurrent ACCEPT,
  * declines and completions can never double-place or double-claim an escrow.
  */
 export class PaymentRequestService {
@@ -41,12 +42,19 @@ export class PaymentRequestService {
             throw new PaymentRequestError('too_many_pending');
         }
 
+        // Record the asset the request is denominated in at creation time so a
+        // later configuration change cannot alter what the request means.
+        // Defaults to the configured asset for legacy rows via resolveRequestAsset.
+        const asset = getAssetConfig();
+
         const expiresAt = new Date(Date.now() + REQUEST_TTL_HOURS * 60 * 60 * 1000);
         const request = await prisma.paymentRequest.create({
             data: {
                 requesterId,
                 responderId,
                 amount,
+                assetCode: asset.code,
+                assetIssuer: asset.issuer ?? null,
                 status: 'PENDING',
                 expiresAt,
             },
@@ -71,8 +79,12 @@ export class PaymentRequestService {
             throw new PaymentRequestError('not_pending');
         }
 
+        // Honour the asset recorded on the request; fall back to the configured
+        // asset for legacy rows created before assets were recorded.
+        const asset = this.resolveRequestAsset(request);
+
         // Confirm the respondent can actually cover the amount before locking funds.
-        const balance = await this.getNativeBalance(wallet.publicKey);
+        const balance = await this.getAssetBalance(wallet.publicKey, asset);
         if (parseFloat(balance) < parseFloat(String(request.amount))) {
             throw new PaymentRequestError('insufficient_balance');
         }
@@ -95,6 +107,7 @@ export class PaymentRequestService {
                 this.parseWallet(request.requester.stellarWallet)?.publicKey ?? '',
                 String(request.amount),
                 RECLAIM_WINDOW_SECONDS,
+                asset,
             ));
         } catch (err) {
             // The Stellar call failed, so no funds are locked — release our
@@ -107,7 +120,7 @@ export class PaymentRequestService {
         }
 
         // The hold is live on-chain. From here on we must never go back to
-        // PENDING — that would let a second ACCEPT lock the funds twice. Retry
+        // PENDING — that would let a second ACCEPT rock the funds twice. Retry
         // the recording write; if it still fails the request stays in HOLDING
         // (blocked from accept/decline/expire) with the balance ID logged for
         // recovery.
@@ -238,18 +251,36 @@ export class PaymentRequestService {
         return request as any;
     }
 
-    private parseWallet(stellarWallet: string | null): { publicKey: string; encryptedSecret: string; iv: string; authTag: string } | null {
-        if (!stellarWallet) return null;
+    /**
+     * Returns the asset a request is denominated in. Requests created after
+     * assets were recorded carry their own code/issuer; legacy rows fall back
+     * to the currently configured asset.
+     */
+    private resolveRequestAsset(request: any): { code: string; issuer: string | null } {
+        if (request.assetCode) {
+            return { code: request.assetCode, issuer: request.assetIssuer ?? null };
+        }
+        const configured = getAssetConfig();
+        return { code: configured.code, issuer: configured.issuer ?? null };
+    }
+
+    private parseWallet(stellaeWallet: string | null): { publicKey: string; encryptedSecret: string; iv: string; authTag: string } | null {
+        if (!stellaeWallet) return null;
         try {
-            return JSON.parse(stellarWallet);
+            return JSON.parse(stellaeWallet);
         } catch {
             return null;
         }
     }
 
-    private async getNativeBalance(publicKey: string): Promise<string> {
+    private async getAssetBalance(
+        publicKey: string,
+        asset: { code: string; issuer: string | null },
+    ): Promise<string> {
         const balances = await this.stellarService.checkBalance(publicKey);
-        const native = balances.find((b) => b.assetCode === 'XLM');
-        return native?.balance ?? '0';
+        const match = balances.find(
+            (b) => b.assetCode === asset.code && (b.assetIssuer ?? null) === (asset.issuer ?? null),
+        );
+        return match?.balance ?? '0';
     }
 }
