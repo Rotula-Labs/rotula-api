@@ -56,6 +56,11 @@ model SavingsGroup {
   // membership is restored.
   isPaused               Boolean          @default(false)
   pausedAt               DateTime?
+  // Set when the pause is lifted (membership back to the 2-member minimum).
+  // Records why and when the group resumed so the paused flag and the
+  // reminder job state can be audited together.
+  resumedAt              DateTime?
+  resumeReason           String?
   createdAt              DateTime         @default(now())
   updatedAt              DateTime         @updatedAt
   members                GroupMember[]

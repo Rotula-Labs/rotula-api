@@ -1,6 +1,7 @@
 import { PrismaClient, Prisma } from '@prisma/client';
 import { scheduleGroupCycle, removeGroupCycle } from '../queue/contribution-scheduler.queue';
 import { enqueueContractDeployment } from '../queue/soroban-deployment.queue';
+import { MIN_GROUP_MEMBERS } from '../constants/group.constants';
 
 const prisma = new PrismaClient();
 
@@ -85,11 +86,46 @@ export class GroupService {
     }
 
     public async joinGroup(userId: string, groupId: string) {
-        return await prisma.groupMember.create({
+        const member = await prisma.groupMember.create({
             data: {
                 userId,
                 groupId,
                 role: 'MEMBER'
+            }
+        });
+
+        const group = await prisma.savingsGroup.findUnique({ where: { id: groupId } });
+        if (group && group.isPaused) {
+            const activeMembers = await prisma.groupMember.count({
+                where: { groupId, status: { not: 'LEFT' } }
+            });
+            if (activeMembers >= MIN_GROUP_MEMBERS) {
+                await this.resumeGroup(groupId, 'MEMBERSHIP_RESTORED');
+            }
+        }
+
+        return member;
+    }
+
+    /**
+     * Lifts the pause on a group and re-schedules its reminder job in the same
+     * operation so the paused flag and the job state cannot disagree.
+     */
+    public async resumeGroup(groupId: string, reason: string) {
+        const group = await prisma.savingsGroup.findUnique({ where: { id: groupId } });
+        if (!group) throw new Error('Group not found');
+        if (!group.isPaused) return group;
+
+        const jobId = await scheduleGroupCycle(group.id, group.contributionFrequency);
+
+        return await prisma.savingsGroup.update({
+            where: { id: groupId },
+            data: {
+                isPaused: false,
+                pausedAt: null,
+                resumedAt: new Date(),
+                resumeReason: reason,
+                bullMqJobId: jobId
             }
         });
     }
