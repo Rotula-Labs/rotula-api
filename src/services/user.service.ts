@@ -90,6 +90,100 @@ export class UserService {
         });
     }
 
+    public async getUsersByPublicKeys(
+        publicKeys: string[],
+    ): Promise<Map<string, any>> {
+        const result = new Map<string, any>();
+        const keys = [...new Set(publicKeys.filter(Boolean))];
+
+        if (keys.length === 0) return result;
+
+        let cachedValues: (string | null)[] = [];
+
+        try {
+            cachedValues = await redisClient.mget(
+                ...keys.map((key) => `address_to_username:${key}`),
+            );
+        } catch (error) {
+            console.error('Redis mget error:', error);
+        }
+
+        const missingKeys: string[] = [];
+
+        keys.forEach((key, index) => {
+            const cached = cachedValues[index];
+
+            if (cached) {
+                try {
+                    result.set(key, JSON.parse(cached));
+                    return;
+                } catch (error) {
+                    console.error('Redis cache parse error:', error);
+                }
+            }
+
+            missingKeys.push(key);
+        });
+
+        if (missingKeys.length === 0) return result;
+
+        const users = await prisma.user.findMany({
+            where: {
+                OR: missingKeys.map((key) => ({
+                    stellarWallet: { contains: key },
+                })),
+            },
+            select: {
+                stellarWallet: true,
+                username: true,
+                phoneNumber: true,
+            },
+        });
+
+        const foundKeys = new Set<string>();
+
+        for (const user of users) {
+            if (!user.stellarWallet) continue;
+
+            try {
+                const wallet = JSON.parse(user.stellarWallet);
+                const key = wallet.publicKey;
+
+                if (!missingKeys.includes(key)) continue;
+
+                const publicUser = {
+                    username: user.username,
+                    phoneNumber: user.phoneNumber,
+                };
+
+                result.set(key, publicUser);
+                foundKeys.add(key);
+
+                try {
+                    await redisClient.set(
+                        `address_to_username:${key}`,
+                        JSON.stringify(publicUser),
+                        'EX',
+                        3600,
+                    );
+                } catch (error) {
+                    console.error('Redis set error:', error);
+                }
+            } catch (error) {
+                console.error('Wallet JSON parse error:', error);
+            }
+        }
+
+        // Preserve the existing lookup behavior: unresolved keys map to undefined.
+        for (const key of missingKeys) {
+            if (!foundKeys.has(key)) {
+                result.set(key, undefined);
+            }
+        }
+
+        return result;
+    }
+
     public async getUserByPublicKey(publicKey: string): Promise<any> {
         const cacheKey = `address_to_username:${publicKey}`;
         try {
