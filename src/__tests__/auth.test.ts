@@ -110,3 +110,79 @@ describe('Auth Service - SEP-10', () => {
         (global as any).mockZeroWeight = false;
     });
 });
+
+import { getToken } from '../controllers/auth.controller';
+import { observabilityService } from '../services/observability.service';
+
+describe('Auth Controller - getToken', () => {
+    let mockReq: any;
+    let mockRes: any;
+    let logErrorSpy: jest.SpyInstance;
+
+    beforeEach(() => {
+        mockReq = {
+            body: {},
+            headers: {},
+        };
+        mockRes = {
+            status: jest.fn().mockReturnThis(),
+            json: jest.fn().mockReturnThis(),
+        };
+        logErrorSpy = jest.spyOn(observabilityService, 'logError').mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+        jest.clearAllMocks();
+        logErrorSpy.mockRestore();
+    });
+
+    it('returns 400 if transaction parameter is missing or invalid', async () => {
+        mockReq.body = {};
+        await getToken(mockReq, mockRes);
+        expect(mockRes.status).toHaveBeenCalledWith(400);
+        expect(mockRes.json).toHaveBeenCalledWith({ error: 'Missing or invalid transaction parameter' });
+    });
+
+    it('returns stable 401 and generic error message on verification failure without exposing thrown error', async () => {
+        const thrownError = new Error('Challenge transaction has already been consumed');
+        jest.spyOn(authService, 'verifyChallengeAndGenerateToken').mockRejectedValueOnce(thrownError);
+
+        mockReq.body = { transaction: 'invalid-xdr' };
+        mockReq.headers = { 'x-request-id': 'req-test-123' };
+
+        await getToken(mockReq, mockRes);
+
+        expect(mockRes.status).toHaveBeenCalledWith(401);
+        expect(mockRes.json).toHaveBeenCalledWith({ error: 'Invalid challenge transaction' });
+        expect(mockRes.json.mock.calls[0][0].error).not.toContain('Challenge transaction has already been consumed');
+
+        expect(logErrorSpy).toHaveBeenCalledWith(
+            'Challenge verification failed',
+            thrownError,
+            expect.objectContaining({
+                requestId: 'req-test-123',
+                error: 'Challenge transaction has already been consumed',
+            })
+        );
+    });
+
+    it('returns identical error shape when Stellar SDK error is thrown', async () => {
+        const sdkError = new Error('StellarSdk.readChallengeTx invalid transaction');
+        jest.spyOn(authService, 'verifyChallengeAndGenerateToken').mockRejectedValueOnce(sdkError);
+
+        mockReq.body = { transaction: 'bad-sig-xdr' };
+
+        await getToken(mockReq, mockRes);
+
+        expect(mockRes.status).toHaveBeenCalledWith(401);
+        expect(mockRes.json).toHaveBeenCalledWith({ error: 'Invalid challenge transaction' });
+        expect(logErrorSpy).toHaveBeenCalledWith(
+            'Challenge verification failed',
+            sdkError,
+            expect.objectContaining({
+                error: 'StellarSdk.readChallengeTx invalid transaction',
+            })
+        );
+    });
+});
+
