@@ -47,6 +47,20 @@ export async function enqueueMessage(data: MessageJobData): Promise<Job> {
     });
 }
 
+/**
+ * Enqueue every message in a batch. Each message is keyed by its WhatsApp
+ * message id, so a redelivered payload cannot process the same message twice.
+ *
+ * Returns the result for each message so callers can report success only when
+ * every message in the batch was handled.
+ */
+export async function enqueueMessages(
+    messages: MessageJobData[],
+): Promise<PromiseSettledResult<Job>[]> {
+    const results = await Promise.allSettled(messages.map((message) => enqueueMessage(message)));
+    return results;
+}
+
 export async function closeQueue(): Promise<void> {
     if (queueInstance) {
         await queueInstance.close();
