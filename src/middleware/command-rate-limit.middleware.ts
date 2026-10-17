@@ -4,6 +4,7 @@ import { redisClient } from '../lib/redis';
 import { WhatsAppService } from '../services/whatsapp.service';
 import { t, initI18n } from '../services/locale.service';
 import { abuseDetectionService } from '../services/abuse-detection.service';
+import { hmacPhone } from '../utils/encryption.util';
 
 const whatsappService = new WhatsAppService();
 
@@ -180,10 +181,11 @@ export const commandRateLimitMiddleware = async (
 
     if (phoneNumber) {
         isUser = true;
-        rateLimitKey = `rate_limit:${phoneNumber}`;
+        const phoneHash = hmacPhone(phoneNumber);
+        rateLimitKey = `rate_limit:${phoneHash}`;
         if (commandText) {
             tier = classifyCommand(commandText);
-            rateLimitKey = `rate_limit:${tier}:${phoneNumber}`;
+            rateLimitKey = `rate_limit:${tier}:${phoneHash}`;
         }
     } else {
         // Fallback key: IP address (e.g. for GET requests / webhook verifications / API calls)

@@ -1,5 +1,6 @@
 import { redisClient } from '../lib/redis';
 import { WhatsAppService } from './whatsapp.service';
+import { hmacPhone } from '../utils/encryption.util';
 
 const whatsappService = new WhatsAppService();
 
@@ -32,10 +33,11 @@ export class AbuseDetectionService {
     public async recordCommand(phoneNumber: string, commandText: string): Promise<void> {
         const now = Date.now();
         const entry: CommandHistoryEntry = { command: commandText, timestamp: now };
+        const phoneHash = hmacPhone(phoneNumber);
         
         if (this.isRedisAvailable()) {
             try {
-                const key = `command_history:${phoneNumber}`;
+                const key = `command_history:${phoneHash}`;
                 await redisClient.lpush(key, JSON.stringify(entry));
                 await redisClient.ltrim(key, 0, 19); // Keep last 20 commands
                 await redisClient.expire(key, 24 * 60 * 60); // 24 hours
@@ -46,18 +48,19 @@ export class AbuseDetectionService {
         }
         
         // In-memory fallback
-        const history = this.inMemoryHistory.get(phoneNumber) || [];
+        const history = this.inMemoryHistory.get(phoneHash) || [];
         history.unshift(entry);
         if (history.length > 20) {
             history.length = 20;
         }
-        this.inMemoryHistory.set(phoneNumber, history);
+        this.inMemoryHistory.set(phoneHash, history);
     }
     
     public async getCommandHistory(phoneNumber: string): Promise<CommandHistoryEntry[]> {
+        const phoneHash = hmacPhone(phoneNumber);
         if (this.isRedisAvailable()) {
             try {
-                const key = `command_history:${phoneNumber}`;
+                const key = `command_history:${phoneHash}`;
                 const rawList = await redisClient.lrange(key, 0, -1);
                 return rawList.map(item => JSON.parse(item));
             } catch (err) {
@@ -65,12 +68,13 @@ export class AbuseDetectionService {
             }
         }
         
-        return this.inMemoryHistory.get(phoneNumber) || [];
+        return this.inMemoryHistory.get(phoneHash) || [];
     }
     
     public async recordFinancialLimitHit(phoneNumber: string, commandText: string): Promise<boolean> {
         const now = Date.now();
         const tenMinutesMs = 10 * 60 * 1000;
+        const phoneHash = hmacPhone(phoneNumber);
         
         // Always record this hit in command history too
         await this.recordCommand(phoneNumber, `[RATE LIMIT HIT] ${commandText}`);
@@ -80,7 +84,7 @@ export class AbuseDetectionService {
         
         if (this.isRedisAvailable()) {
             try {
-                const hitsKey = `abuse_hits:${phoneNumber}`;
+                const hitsKey = `abuse_hits:${phoneHash}`;
                 const uniqueVal = `${now}-${Math.random()}`;
                 
                 await redisClient.zadd(hitsKey, now, uniqueVal);
@@ -99,11 +103,11 @@ export class AbuseDetectionService {
         
         // Fallback or run in-memory if Redis failed / was unavailable
         if (!this.isRedisAvailable()) {
-            const hits = this.inMemoryHits.get(phoneNumber) || [];
+            const hits = this.inMemoryHits.get(phoneHash) || [];
             hits.push(now);
             // Filter hits within last 10 minutes
             const recentHits = hits.filter(t => t > now - tenMinutesMs);
-            this.inMemoryHits.set(phoneNumber, recentHits);
+            this.inMemoryHits.set(phoneHash, recentHits);
             hitsCount = recentHits.length;
             
             if (hitsCount >= 3) {
@@ -121,9 +125,10 @@ export class AbuseDetectionService {
     
     private async flagUserForReview(phoneNumber: string): Promise<void> {
         const now = Date.now();
+        const phoneHash = hmacPhone(phoneNumber);
         const history = await this.getCommandHistory(phoneNumber);
         const logData = {
-            phoneNumber,
+            phoneHash,
             flaggedAt: new Date(now).toISOString(),
             commandHistory: history
         };
@@ -146,7 +151,7 @@ export class AbuseDetectionService {
         // Store flag in Redis with a 24-hour TTL
         if (this.isRedisAvailable()) {
             try {
-                const flagKey = `abuse_flag:${phoneNumber}`;
+                const flagKey = `abuse_flag:${phoneHash}`;
                 await redisClient.set(flagKey, JSON.stringify(logData), 'EX', 24 * 60 * 60);
                 return;
             } catch (err) {
@@ -154,13 +159,14 @@ export class AbuseDetectionService {
             }
         }
         
-        this.inMemoryFlags.set(phoneNumber, JSON.stringify(logData));
+        this.inMemoryFlags.set(phoneHash, JSON.stringify(logData));
     }
     
     public async isUserFlagged(phoneNumber: string): Promise<boolean> {
+        const phoneHash = hmacPhone(phoneNumber);
         if (this.isRedisAvailable()) {
             try {
-                const flagKey = `abuse_flag:${phoneNumber}`;
+                const flagKey = `abuse_flag:${phoneHash}`;
                 const exists = await redisClient.exists(flagKey);
                 return exists === 1;
             } catch (err) {
@@ -168,7 +174,7 @@ export class AbuseDetectionService {
             }
         }
         
-        return this.inMemoryFlags.has(phoneNumber);
+        return this.inMemoryFlags.has(phoneHash);
     }
 
     public clearInMemory(): void {
