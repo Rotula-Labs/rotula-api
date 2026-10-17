@@ -279,8 +279,8 @@ export class PayoutService {
     /**
      * Removes an exited member from the payout rotation, materializing the
      * default join order into an explicit payoutOrder first if none was set.
-     * The current payout index is clamped so it still points at a valid
-     * (or the last) position in the shortened order.
+     * The current payout index is shifted to account for the departing member's
+     * position so the member due next is unchanged.
      */
     public async removeMemberFromOrder(groupId: string, exitedUserId: string): Promise<string[]> {
         const group = await prisma.savingsGroup.findUnique({
@@ -292,9 +292,19 @@ export class PayoutService {
         const currentOrder = this.resolveOrder(group);
         if (!currentOrder.includes(exitedUserId)) return currentOrder;
 
-        const newOrder = currentOrder.filter((id) => id !== exitedUserId);
         const currentIndex = (group as any).currentPayoutIndex ?? 0;
-        const newIndex = newOrder.length === 0 ? 0 : Math.min(currentIndex, newOrder.length - 1);
+        const departedIndex = currentOrder.indexOf(exitedUserId);
+        const newOrder = currentOrder.filter((id) => id !== exitedUserId);
+
+        // Removing an element before the cursor shifts every later position down
+        // by one, so the index must shift with them. Removing at or after the
+        // cursor leaves the member due next unchanged. Clamp only to keep the
+        // index within bounds of the shortened order.
+        let newIndex = currentIndex;
+        if (departedIndex < currentIndex) {
+            newIndex = currentIndex - 1;
+        }
+        newIndex = newOrder.length === 0 ? 0 : Math.min(newIndex, newOrder.length - 1);
 
         await prisma.savingsGroup.update({
             where: { id: groupId },

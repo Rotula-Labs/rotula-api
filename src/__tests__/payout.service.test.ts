@@ -527,6 +527,111 @@ describe('PayoutService', () => {
             });
         });
 
+        it('keeps the next member due when an earlier member leaves (departure before cursor)', async () => {
+            const group = {
+                id: 'g1',
+                payoutOrder: ['u1', 'u2', 'u3'],
+                currentPayoutIndex: 1,
+                members: [makeMember('u1', 'CREATOR'), makeMember('u2', 'MEMBER'), makeMember('u3', 'MEMBER')],
+            };
+            prisma.savingsGroup.findUnique.mockResolvedValueOnce(group);
+
+            const result = await payoutService.removeMemberFromOrder('g1', 'u1');
+
+            expect(result).toEqual(['u2', 'u3']);
+            // u2 was due at index 1; after u1 leaves, u2 is at index 0 and must stay due.
+            expect(prisma.savingsGroup.update).toHaveBeenCalledWith({
+                where: { id: 'g1' },
+                data: { payoutOrder: ['u2', 'u3'], currentPayoutIndex: 0 },
+            });
+        });
+
+        it('leaves the index pointing at the same member when the departure is after the cursor', async () => {
+            const group = {
+                id: 'g1',
+                payoutOrder: ['u1', 'u2', 'u3'],
+                currentPayoutIndex: 1,
+                members: [makeMember('u1', 'CREATOR'), makeMember('u2', 'MEMBER'), makeMember('u3', 'MEMBER')],
+            };
+            prisma.savingsGroup.findUnique.mockResolvedValueOnce(group);
+
+            const result = await payoutService.removeMemberFromOrder('g1', 'u3');
+
+            expect(result).toEqual(['u1', 'u2']);
+            // u2 was due at index 1 and remains at index 1.
+            expect(prisma.savingsGroup.update).toHaveBeenCalledWith({
+                where: { id: 'g1' },
+                data: { payoutOrder: ['u1', 'u2'], currentPayoutIndex: 1 },
+            });
+        });
+
+        it('keeps the index valid when the departing member is exactly at the cursor', async () => {
+            const group = {
+                id: 'g1',
+                payoutOrder: ['u1', 'u2', 'u3'],
+                currentPayoutIndex: 1,
+                members: [makeMember('u1', 'CREATOR'), makeMember('u2', 'MEMBER'), makeMember('u3', 'MEMBER')],
+            };
+            prisma.savingsGroup.findUnique.mockResolvedValueOnce(group);
+
+            const result = await payoutService.removeMemberFromOrder('g1', 'u2');
+
+            expect(result).toEqual(['u1', 'u3']);
+            // The member who was next (u3) shifts into index 1 and must remain due.
+            expect(prisma.savingsGroup.update).toHaveBeenCalledWith({
+                where: { id: 'g1' },
+                data: { payoutOrder: ['u1', 'u3'], currentPayoutIndex: 1 },
+            });
+        });
+
+        it('pays every remaining member exactly once across a rotation with a departure in each position', async () => {
+            const memberIds = ['u1', 'u2', 'u3', 'u4'];
+            const members = memberIds.map((id, i) => makeMember(id, i === 0 ? 'CREATOR' : 'MEMBER'));
+
+            let state = {
+                id: 'g1',
+                name: 'Ajo Circle',
+                contributionAmount: 10,
+                currentPayoutIndex: 0,
+                totalCycles: 0,
+                payoutOrder: [...memberIds],
+                members,
+            };
+
+            prisma.savingsGroup.update.mockImplementation(({ data }: any) => {
+                state = { ...state, ...data };
+                return Promise.resolve(state);
+            });
+
+            const paid: string[] = [];
+            prisma.payout.create.mockImplementation(({ data }: any) => {
+                paid.push(data.recipientId);
+                return Promise.resolve({ id: `payout-${paid.length}`, recipientId: data.recipientId });
+            });
+
+            // Departure before the cursor: u1 leaves while u2 is due.
+            state.currentPayoutIndex = 1;
+            prisma.savingsGroup.findUnique.mockResolvedValueOnce({ ...state, members });
+            await payoutService.removeMemberFromOrder('g1', 'u1');
+
+            // Departure at the cursor: u2 (now due) leaves.
+            prisma.savingsGroup.findUnique.mockResolvedValueOnce({ ...state, members });
+            await payoutService.removeMemberFromOrder('g1', 'u2');
+
+            // Departure after the cursor: u4 leaves while u3 is due.
+            prisma.savingsGroup.findUnique.mockResolvedValueOnce({ ...state, members });
+            await payoutService.removeMemberFromOrder('g1', 'u4');
+
+            // Only u3 remains; the rotation must pay them exactly once.
+            prisma.savingsGroup.findUnique.mockResolvedValueOnce({ ...state, members });
+            prisma.payout.findFirst.mockResolvedValueOnce(null);
+            await payoutService.executePayout('g1');
+
+            expect(paid).toEqual(['u3']);
+            expect(mockSorobanPayout).toHaveBeenCalledTimes(1);
+            expect(mockSorobanPayout).toHaveBeenCalledWith('TEST_TREASURY_SECRET', 'PUB_u3', '10');
+        });
+
         it('materializes the default join order before removing when payoutOrder is null', async () => {
             const group = {
                 id: 'g1',
