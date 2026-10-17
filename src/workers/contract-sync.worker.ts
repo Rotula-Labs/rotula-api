@@ -86,10 +86,6 @@ export async function runReconciliation(sorobanService: SorobanService): Promise
     for (const group of groups) {
         const contractId = group.stellarContractId!;
 
-        // Determine the current cycle window for DB lookups.
-        // Fall back to the beginning of time if no cycle has started yet.
-        const cycleStart = group.currentCycleStart ?? new Date(0);
-        const cycleEnd = group.currentCycleEnd ?? new Date();
 
         for (const membership of group.members) {
             const member = membership.user;
@@ -121,13 +117,24 @@ export async function runReconciliation(sorobanService: SorobanService): Promise
                 continue;
             }
 
-            // 2. Sum COMPLETED DB contributions for this member in the current cycle
+            // 2. Sum COMPLETED DB contributions for this member in the current cycle.
+            // Prefer the explicit cycle identifier; fall back to the timestamp
+            // window only for historical rows that predate cycle tracking.
             const dbContributions = await prisma.contribution.findMany({
                 where: {
                     userId: member.id,
                     groupId: group.id,
                     status: 'COMPLETED',
-                    createdAt: { gte: cycleStart, lte: cycleEnd },
+                    OR: [
+                        { cycleId: group.currentCycleId ?? undefined },
+                        {
+                            cycleId: null,
+                            createdAt: {
+                                gte: group.currentCycleStart ?? new Date(0),
+                                lte: group.currentCycleEnd ?? new Date(),
+                            },
+                        },
+                    ],
                 },
             });
 

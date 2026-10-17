@@ -80,6 +80,7 @@ async function handleCycleStart(job: Job, whatsappService: WhatsAppService) {
     const group = await prisma.savingsGroup.update({
         where: { id: groupId },
         data: {
+            currentCycleId: currentCycleStart.getTime().toString(),
             currentCycleStart,
             currentCycleEnd,
         },
@@ -121,17 +122,17 @@ async function handleLastCallReminder(job: Job, whatsappService: WhatsAppService
     
     if (!group || !group.currentCycleStart || !group.currentCycleEnd) return;
     
-    // We create a cycle ID conceptually using the start time
-    const cycleId = group.currentCycleStart.getTime().toString();
+    // Use the explicit cycle identifier assigned when the cycle started
+    const cycleId = group.currentCycleId ?? group.currentCycleStart.getTime().toString();
     
-    // Find all contributions for the current cycle
+    // Find all contributions for the current cycle by its identifier
     const contributions = await prisma.contribution.findMany({
         where: {
             groupId,
-            createdAt: {
-                gte: group.currentCycleStart,
-                lt: group.currentCycleEnd
-            },
+            OR: [
+                { cycleId },
+                { cycleId: null, createdAt: { gte: group.currentCycleStart, lt: group.currentCycleEnd } }
+            ],
             status: 'COMPLETED'
         }
     });
@@ -178,3 +179,4 @@ export async function closeContributionWorker(): Promise<void> {
         workerInstance = null;
     }
 }
+ 
